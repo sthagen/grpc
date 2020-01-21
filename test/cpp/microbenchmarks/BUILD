@@ -14,7 +14,7 @@
 
 licenses(["notice"])  # Apache v2
 
-load("//bazel:grpc_build_system.bzl", "grpc_cc_binary", "grpc_cc_library", "grpc_cc_test", "grpc_package")
+load("//bazel:grpc_build_system.bzl", "grpc_cc_library", "grpc_cc_test", "grpc_package")
 
 grpc_package(name = "test/cpp/microbenchmarks")
 
@@ -48,7 +48,7 @@ grpc_cc_library(
     ],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_closure",
     testonly = 1,
     srcs = ["bm_closure.cc"],
@@ -56,7 +56,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_alarm",
     testonly = 1,
     srcs = ["bm_alarm.cc"],
@@ -64,7 +64,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_arena",
     testonly = 1,
     srcs = ["bm_arena.cc"],
@@ -72,7 +72,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_byte_buffer",
     testonly = 1,
     srcs = ["bm_byte_buffer.cc"],
@@ -80,7 +80,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_channel",
     testonly = 1,
     srcs = ["bm_channel.cc"],
@@ -88,7 +88,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_call_create",
     testonly = 1,
     srcs = ["bm_call_create.cc"],
@@ -96,7 +96,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_cq",
     testonly = 1,
     srcs = ["bm_cq.cc"],
@@ -104,7 +104,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_cq_multiple_threads",
     testonly = 1,
     srcs = ["bm_cq_multiple_threads.cc"],
@@ -112,7 +112,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_error",
     testonly = 1,
     srcs = ["bm_error.cc"],
@@ -130,7 +130,7 @@ grpc_cc_library(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_fullstack_streaming_ping_pong",
     testonly = 1,
     srcs = [
@@ -152,7 +152,7 @@ grpc_cc_library(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_fullstack_streaming_pump",
     testonly = 1,
     srcs = [
@@ -165,7 +165,7 @@ grpc_cc_binary(
     deps = [":fullstack_streaming_pump_h"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_fullstack_trickle",
     testonly = 1,
     srcs = ["bm_fullstack_trickle.cc"],
@@ -185,7 +185,7 @@ grpc_cc_library(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_fullstack_unary_ping_pong",
     testonly = 1,
     srcs = [
@@ -198,7 +198,7 @@ grpc_cc_binary(
     deps = [":fullstack_unary_ping_pong_h"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_metadata",
     testonly = 1,
     srcs = ["bm_metadata.cc"],
@@ -206,7 +206,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_chttp2_hpack",
     testonly = 1,
     srcs = ["bm_chttp2_hpack.cc"],
@@ -214,7 +214,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_opencensus_plugin",
     testonly = 1,
     srcs = ["bm_opencensus_plugin.cc"],
@@ -226,7 +226,7 @@ grpc_cc_binary(
     ],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_timer",
     testonly = 1,
     srcs = ["bm_timer.cc"],
@@ -234,7 +234,7 @@ grpc_cc_binary(
     deps = [":helpers"],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_threadpool",
     testonly = 1,
     srcs = ["bm_threadpool.cc"],
@@ -269,7 +269,7 @@ grpc_cc_library(
     ],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_callback_unary_ping_pong",
     testonly = 1,
     srcs = [
@@ -291,7 +291,7 @@ grpc_cc_library(
     ],
 )
 
-grpc_cc_binary(
+grpc_cc_test(
     name = "bm_callback_streaming_ping_pong",
     testonly = 1,
     srcs = [
