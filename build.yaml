@@ -595,7 +595,6 @@ filegroups:
   - src/cpp/client/create_channel_internal.cc
   - src/cpp/client/create_channel_posix.cc
   - src/cpp/client/credentials_cc.cc
-  - src/cpp/client/generic_stub.cc
   - src/cpp/common/alarm.cc
   - src/cpp/common/channel_arguments.cc
   - src/cpp/common/channel_filter.cc
@@ -2342,19 +2341,6 @@ targets:
   - gpr
   corpus_dirs:
   - test/core/security/corpus/alts_credentials_corpus
-  maxlen: 2048
-- name: api_fuzzer
-  build: fuzzer
-  language: c
-  src:
-  - test/core/end2end/fuzzers/api_fuzzer.cc
-  deps:
-  - grpc_test_util
-  - grpc
-  - gpr
-  corpus_dirs:
-  - test/core/end2end/fuzzers/api_fuzzer_corpus
-  dict: test/core/end2end/fuzzers/api_fuzzer.dictionary
   maxlen: 2048
 - name: arena_test
   cpu_cost: 10
@@ -6120,6 +6106,40 @@ targets:
   - grpc++
   - grpc
   - gpr
+- name: xds_interop_client
+  build: test
+  run: false
+  language: c++
+  src:
+  - src/proto/grpc/testing/empty.proto
+  - src/proto/grpc/testing/messages.proto
+  - src/proto/grpc/testing/test.proto
+  - test/cpp/interop/xds_interop_client.cc
+  deps:
+  - grpc++_test_config
+  - grpc_test_util
+  - grpc++
+  - grpc
+  - gpr
+  platforms:
+  - linux
+- name: xds_interop_server
+  build: test
+  run: false
+  language: c++
+  src:
+  - src/proto/grpc/testing/empty.proto
+  - src/proto/grpc/testing/messages.proto
+  - src/proto/grpc/testing/test.proto
+  - test/cpp/interop/xds_interop_server.cc
+  deps:
+  - grpc++_test_config
+  - grpc_test_util
+  - grpc++
+  - grpc
+  - gpr
+  platforms:
+  - linux
 - name: public_headers_must_be_c89
   build: test
   language: c89
