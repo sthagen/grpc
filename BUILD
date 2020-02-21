@@ -72,11 +72,6 @@ config_setting(
     values = {"cpu": "darwin"},
 )
 
-config_setting(
-    name = "grpc_disable_absl",
-    values = {"define": "GRPC_USE_ABSL=0"},
-)
-
 python_config_settings()
 
 # This should be updated along with build.yaml
@@ -563,6 +558,7 @@ grpc_cc_library(
     external_deps = [
         "absl/memory",
         "absl/strings",
+        "absl/strings:str_format",
     ],
     language = "c++",
     public_hdrs = GPR_PUBLIC_HDRS,
