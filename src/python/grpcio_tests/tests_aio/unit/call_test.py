@@ -209,7 +209,7 @@ class TestUnaryUnaryCall(_MulticallableTestMixin, AioTestBase):
             grpc.access_token_call_credentials("def"),
         )
         with self.assertRaisesRegex(
-                grpc._cygrpc.UsageError,
+                aio.UsageError,
                 "Call credentials are only valid on secure channels"):
             self._stub.UnaryCall(messages_pb2.SimpleRequest(),
                                  credentials=call_credentials)
@@ -740,5 +740,5 @@ class TestStreamStreamCall(_MulticallableTestMixin, AioTestBase):
 
 
 if __name__ == '__main__':
-    logging.basicConfig()
+    logging.basicConfig(level=logging.DEBUG)
     unittest.main(verbosity=2)
