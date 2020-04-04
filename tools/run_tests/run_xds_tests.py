@@ -87,11 +87,16 @@ argp.add_argument(
     help='Comma-separated list of test cases to run, or \'all\' to run every '
     'test. Available tests: %s' % ' '.join(_TEST_CASES))
 argp.add_argument(
+    '--bootstrap_file',
+    default='',
+    help='File to reference via GRPC_XDS_BOOTSTRAP. Disables built-in '
+    'bootstrap generation')
+argp.add_argument(
     '--client_cmd',
     default=None,
-    help='Command to launch xDS test client. This script will fill in '
-    '{server_uri}, {stats_port} and {qps} parameters using str.format(), and '
-    'generate the GRPC_XDS_BOOTSTRAP file.')
+    help='Command to launch xDS test client. {server_uri}, {stats_port} and '
+    '{qps} references will be replaced using str.format(). GRPC_XDS_BOOTSTRAP '
+    'will be set for the command')
 argp.add_argument('--zone', default='us-central1-a')
 argp.add_argument('--secondary_zone',
                   default='us-west1-b',
@@ -142,6 +147,11 @@ argp.add_argument('--xds_server',
 argp.add_argument('--source_image',
                   default='projects/debian-cloud/global/images/family/debian-9',
                   help='Source image for VMs created during the test')
+argp.add_argument('--path_to_server_binary',
+                  default=None,
+                  type=str,
+                  help='If set, the server binary must already be pre-built on '
+                  'the specified source image')
 argp.add_argument('--machine_type',
                   default='e2-standard-2',
                   help='Machine type for VMs created during the test')
@@ -162,6 +172,12 @@ argp.add_argument(
     'existing will result in an error')
 argp.add_argument('--verbose',
                   help='verbose log output',
+                  default=False,
+                  action='store_true')
+# TODO(ericgribkoff) Remove this param once the sponge-formatted log files are
+# visible in all test environments.
+argp.add_argument('--log_client_output',
+                  help='Log captured client output',
                   default=False,
                   action='store_true')
 args = argp.parse_args()
@@ -473,7 +489,27 @@ def test_secondary_locality_gets_requests_on_primary_failure(
         patch_backend_instances(gcp, backend_service, [primary_instance_group])
 
 
-def create_instance_template(gcp, name, network, source_image, machine_type):
+def get_startup_script(path_to_server_binary, service_port):
+    if path_to_server_binary:
+        return "nohup %s --port=%d 1>/dev/null &" % (path_to_server_binary,
+                                                     service_port)
+    else:
+        return """#!/bin/bash
+sudo apt update
+sudo apt install -y git default-jdk
+mkdir java_server
+pushd java_server
+git clone https://github.com/grpc/grpc-java.git
+pushd grpc-java
+pushd interop-testing
+../gradlew installDist -x test -PskipCodegen=true -PskipAndroid=true
+
+nohup build/install/grpc-interop-testing/bin/xds-test-server \
+    --port=%d 1>/dev/null &""" % service_port
+
+
+def create_instance_template(gcp, name, network, source_image, machine_type,
+                             startup_script):
     config = {
         'name': name,
         'properties': {
@@ -499,21 +535,8 @@ def create_instance_template(gcp, name, network, source_image, machine_type):
             }],
             'metadata': {
                 'items': [{
-                    'key':
-                        'startup-script',
-                    'value':
-                        """#!/bin/bash
-sudo apt update
-sudo apt install -y git default-jdk
-mkdir java_server
-pushd java_server
-git clone https://github.com/grpc/grpc-java.git
-pushd grpc-java
-pushd interop-testing
-../gradlew installDist -x test -PskipCodegen=true -PskipAndroid=true
-
-nohup build/install/grpc-interop-testing/bin/xds-test-server --port=%d 1>/dev/null &"""
-                        % gcp.service_port
+                    'key': 'startup-script',
+                    'value': startup_script
                 }]
             }
         }
@@ -949,7 +972,7 @@ try:
     service_host_name = _BASE_SERVICE_HOST + args.gcp_suffix
     target_http_proxy_name = _BASE_TARGET_PROXY_NAME + args.gcp_suffix
     forwarding_rule_name = _BASE_FORWARDING_RULE_NAME + args.gcp_suffix
-    template_name = _BASE_TARGET_PROXY_NAME + args.gcp_suffix
+    template_name = _BASE_TEMPLATE_NAME + args.gcp_suffix
     instance_group_name = _BASE_INSTANCE_GROUP_NAME + args.gcp_suffix
     same_zone_instance_group_name = _BASE_INSTANCE_GROUP_NAME + '-same-zone' + args.gcp_suffix
     if _USE_SECONDARY_IG:
@@ -986,8 +1009,11 @@ try:
         if not gcp.service_port:
             raise Exception(
                 'Failed to find a valid ip:port for the forwarding rule')
+        startup_script = get_startup_script(args.path_to_server_binary,
+                                            gcp.service_port)
         create_instance_template(gcp, template_name, args.network,
-                                 args.source_image, args.machine_type)
+                                 args.source_image, args.machine_type,
+                                 startup_script)
         instance_group = add_instance_group(gcp, args.zone, instance_group_name,
                                             _INSTANCE_GROUP_SIZE)
         patch_backend_instances(gcp, backend_service, [instance_group])
@@ -1070,11 +1096,14 @@ try:
         server_uri = service_host_name
     else:
         server_uri = service_host_name + ':' + str(gcp.service_port)
-    with tempfile.NamedTemporaryFile(delete=False) as bootstrap_file:
-        bootstrap_file.write(
-            _BOOTSTRAP_TEMPLATE.format(
-                node_id=socket.gethostname()).encode('utf-8'))
-        bootstrap_path = bootstrap_file.name
+    if args.bootstrap_file:
+        bootstrap_path = os.path.abspath(args.bootstrap_file)
+    else:
+        with tempfile.NamedTemporaryFile(delete=False) as bootstrap_file:
+            bootstrap_file.write(
+                _BOOTSTRAP_TEMPLATE.format(
+                    node_id=socket.gethostname()).encode('utf-8'))
+            bootstrap_path = bootstrap_file.name
     client_env = dict(os.environ, GRPC_XDS_BOOTSTRAP=bootstrap_path)
     client_cmd = shlex.split(
         args.client_cmd.format(server_uri=server_uri,
@@ -1088,7 +1117,8 @@ try:
         log_dir = os.path.join(_TEST_LOG_BASE_DIR, test_case)
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
-        test_log_file = open(os.path.join(log_dir, _SPONGE_LOG_NAME), 'w+')
+        test_log_filename = os.path.join(log_dir, _SPONGE_LOG_NAME)
+        test_log_file = open(test_log_filename, 'w+')
         client_process = None
         try:
             client_process = subprocess.Popen(client_cmd,
@@ -1134,10 +1164,15 @@ try:
         finally:
             if client_process:
                 client_process.terminate()
+            test_log_file.close()
             # Workaround for Python 3, as report_utils will invoke decode() on
             # result.message, which has a default value of ''.
             result.message = result.message.encode('UTF-8')
             test_results[test_case] = [result]
+            if args.log_client_output:
+                logger.info('Client output:')
+                with open(test_log_filename, 'r') as client_output:
+                    logger.info(client_output.read())
     if not os.path.exists(_TEST_LOG_BASE_DIR):
         os.makedirs(_TEST_LOG_BASE_DIR)
     report_utils.render_junit_xml_report(test_results,
