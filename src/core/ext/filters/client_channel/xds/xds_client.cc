@@ -895,9 +895,15 @@ void XdsClient::ChannelState::AdsCallState::AcceptLdsUpdate(
     gpr_log(GPR_INFO,
             "[xds_client %p] LDS update does not include requested resource",
             xds_client());
-    xds_client()->service_config_watcher_->OnError(
-        GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-            "LDS update does not include requested resource"));
+    if (xds_client()->lds_result_.has_value() &&
+        !xds_client()->lds_result_->route_config_name.empty()) {
+      Unsubscribe(XdsApi::kRdsTypeUrl,
+                  xds_client()->lds_result_->route_config_name,
+                  /*delay_unsubscription=*/false);
+      xds_client()->rds_result_.reset();
+    }
+    xds_client()->lds_result_.reset();
+    xds_client()->service_config_watcher_->OnResourceDoesNotExist();
     return;
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_xds_client_trace)) {
@@ -936,6 +942,7 @@ void XdsClient::ChannelState::AdsCallState::AcceptLdsUpdate(
     Unsubscribe(
         XdsApi::kRdsTypeUrl, xds_client()->lds_result_->route_config_name,
         /*delay_unsubscription=*/!lds_update->route_config_name.empty());
+    xds_client()->rds_result_.reset();
   }
   xds_client()->lds_result_ = std::move(lds_update);
   if (xds_client()->lds_result_->rds_update.has_value()) {
@@ -963,9 +970,8 @@ void XdsClient::ChannelState::AdsCallState::AcceptRdsUpdate(
     gpr_log(GPR_INFO,
             "[xds_client %p] RDS update does not include requested resource",
             xds_client());
-    xds_client()->service_config_watcher_->OnError(
-        GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-            "RDS update does not include requested resource"));
+    xds_client()->rds_result_.reset();
+    xds_client()->service_config_watcher_->OnResourceDoesNotExist();
     return;
   }
   if (GRPC_TRACE_FLAG_ENABLED(grpc_xds_client_trace)) {
@@ -1051,20 +1057,20 @@ void XdsClient::ChannelState::AdsCallState::AcceptCdsUpdate(
     }
   }
   // For any subscribed resource that is not present in the update,
-  // remove it from the cache and notify watchers of the error.
+  // remove it from the cache and notify watchers that it does not exist.
   for (const auto& p : cds_state.subscribed_resources) {
     const std::string& cluster_name = p.first;
     if (cds_update_map.find(cluster_name) == cds_update_map.end()) {
       ClusterState& cluster_state = xds_client()->cluster_map_[cluster_name];
       cluster_state.update.reset();
       for (const auto& p : cluster_state.watchers) {
-        p.first->OnError(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-            "Cluster not present in CDS update"));
+        p.first->OnResourceDoesNotExist();
       }
     }
   }
-  // Also remove any EDS resources that are no longer referred to by any CDS
-  // resources.
+  // For any EDS resource that is no longer referred to by any CDS
+  // resources, remove it from the cache and notify watchers that it
+  // does not exist.
   auto& eds_state = state_map_[XdsApi::kEdsTypeUrl];
   for (const auto& p : eds_state.subscribed_resources) {
     const std::string& eds_resource_name = p.first;
@@ -1074,8 +1080,7 @@ void XdsClient::ChannelState::AdsCallState::AcceptCdsUpdate(
           xds_client()->endpoint_map_[eds_resource_name];
       endpoint_state.update.reset();
       for (const auto& p : endpoint_state.watchers) {
-        p.first->OnError(GRPC_ERROR_CREATE_FROM_STATIC_STRING(
-            "ClusterLoadAssignment resource removed due to CDS update"));
+        p.first->OnResourceDoesNotExist();
       }
     }
   }
@@ -1240,9 +1245,9 @@ void XdsClient::ChannelState::AdsCallState::OnResponseReceivedLocked() {
       (xds_client()->lds_result_.has_value()
            ? xds_client()->lds_result_->route_config_name
            : ""),
-      xds_client()->xds_routing_enabled_, ClusterNamesForRequest(),
-      EdsServiceNamesForRequest(), &lds_update, &rds_update, &cds_update_map,
-      &eds_update_map, &version, &nonce, &type_url);
+      ClusterNamesForRequest(), EdsServiceNamesForRequest(), &lds_update,
+      &rds_update, &cds_update_map, &eds_update_map, &version, &nonce,
+      &type_url);
   grpc_slice_unref_internal(response_slice);
   if (type_url.empty()) {
     // Ignore unparsable response.
@@ -1797,11 +1802,6 @@ grpc_millis GetRequestTimeout(const grpc_channel_args& args) {
       {15000, 0, INT_MAX});
 }
 
-bool GetXdsRoutingEnabled(const grpc_channel_args& args) {
-  return grpc_channel_args_find_bool(&args, GRPC_ARG_XDS_ROUTING_ENABLED,
-                                     false);
-}
-
 }  // namespace
 
 XdsClient::XdsClient(std::shared_ptr<WorkSerializer> work_serializer,
@@ -1811,7 +1811,6 @@ XdsClient::XdsClient(std::shared_ptr<WorkSerializer> work_serializer,
                      const grpc_channel_args& channel_args, grpc_error** error)
     : InternallyRefCounted<XdsClient>(&grpc_xds_client_trace),
       request_timeout_(GetRequestTimeout(channel_args)),
-      xds_routing_enabled_(GetXdsRoutingEnabled(channel_args)),
       work_serializer_(std::move(work_serializer)),
       interested_parties_(interested_parties),
       bootstrap_(
@@ -2044,16 +2043,16 @@ namespace {
 std::string CreateServiceConfigActionCluster(const std::string& cluster_name) {
   return absl::StrFormat(
       "      \"cds:%s\":{\n"
-      "        \"child_policy\":[ {\n"
+      "        \"childPolicy\":[ {\n"
       "          \"cds_experimental\":{\n"
       "            \"cluster\": \"%s\"\n"
       "          }\n"
       "        } ]\n"
       "       }",
-      cluster_name.c_str(), cluster_name.c_str());
+      cluster_name, cluster_name);
 }
 
-std::string CreateServiceConfigRoute(const std::string& cluster_name,
+std::string CreateServiceConfigRoute(const std::string& action_name,
                                      const std::string& service,
                                      const std::string& method) {
   return absl::StrFormat(
@@ -2062,43 +2061,203 @@ std::string CreateServiceConfigRoute(const std::string& cluster_name,
       "           \"service\": \"%s\",\n"
       "           \"method\": \"%s\"\n"
       "        },\n"
-      "        \"action\": \"cds:%s\"\n"
+      "        \"action\": \"%s\"\n"
       "      }",
-      service.c_str(), method.c_str(), cluster_name.c_str());
+      service, method, action_name);
 }
+
+// Create the service config for one weighted cluster.
+std::string CreateServiceConfigActionWeightedCluster(
+    const std::string& name,
+    const std::vector<XdsApi::RdsUpdate::RdsRoute::ClusterWeight>& clusters) {
+  std::vector<std::string> config_parts;
+  config_parts.push_back(
+      absl::StrFormat("      \"weighted:%s\":{\n"
+                      "        \"childPolicy\":[ {\n"
+                      "          \"weighted_target_experimental\":{\n"
+                      "            \"targets\":{\n",
+                      name));
+  std::vector<std::string> weighted_targets;
+  weighted_targets.reserve(clusters.size());
+  for (const auto& cluster_weight : clusters) {
+    weighted_targets.push_back(absl::StrFormat(
+        "              \"%s\":{\n"
+        "                \"weight\":%d,\n"
+        "                \"childPolicy\":[ {\n"
+        "                  \"cds_experimental\":{\n"
+        "                    \"cluster\": \"%s\"\n"
+        "                  }\n"
+        "                } ]\n"
+        "               }",
+        cluster_weight.name, cluster_weight.weight, cluster_weight.name));
+  }
+  config_parts.push_back(absl::StrJoin(weighted_targets, ",\n"));
+  config_parts.push_back(
+      "            }\n"
+      "          }\n"
+      "        } ]\n"
+      "       }");
+  return absl::StrJoin(config_parts, "");
+}
+
+struct WeightedClustersKeys {
+  std::string cluster_names_key;
+  std::string cluster_weights_key;
+};
+
+// Returns the cluster names and weights key or the cluster names only key.
+WeightedClustersKeys GetWeightedClustersKey(
+    const std::vector<XdsApi::RdsUpdate::RdsRoute::ClusterWeight>&
+        weighted_clusters) {
+  std::set<std::string> cluster_names;
+  std::set<std::string> cluster_weights;
+  for (const auto& cluster_weight : weighted_clusters) {
+    cluster_names.emplace(absl::StrFormat("%s", cluster_weight.name));
+    cluster_weights.emplace(
+        absl::StrFormat("%s_%d", cluster_weight.name, cluster_weight.weight));
+  }
+  return {absl::StrJoin(cluster_names, "_"),
+          absl::StrJoin(cluster_weights, "_")};
+}
+
 }  // namespace
+
+std::string XdsClient::WeightedClustersActionName(
+    const std::vector<XdsApi::RdsUpdate::RdsRoute::ClusterWeight>&
+        weighted_clusters) {
+  WeightedClustersKeys keys = GetWeightedClustersKey(weighted_clusters);
+  auto cluster_names_map_it =
+      weighted_cluster_index_map_.find(keys.cluster_names_key);
+  GPR_ASSERT(cluster_names_map_it != weighted_cluster_index_map_.end());
+  const auto& cluster_weights_map =
+      cluster_names_map_it->second.cluster_weights_map;
+  auto cluster_weights_map_it =
+      cluster_weights_map.find(keys.cluster_weights_key);
+  GPR_ASSERT(cluster_weights_map_it != cluster_weights_map.end());
+  return absl::StrFormat("%s_%d", keys.cluster_names_key,
+                         cluster_weights_map_it->second);
+}
+
+void XdsClient::UpdateWeightedClusterIndexMap(
+    const XdsApi::RdsUpdate& rds_update) {
+  // Construct a list of unique WeightedCluster
+  // actions which we need to process: to find action names
+  std::map<std::string /* cluster_weights_key */,
+           std::string /* cluster_names_key */>
+      actions_to_process;
+  for (const auto& route : rds_update.routes) {
+    if (!route.weighted_clusters.empty()) {
+      WeightedClustersKeys keys =
+          GetWeightedClustersKey(route.weighted_clusters);
+      auto action_it = actions_to_process.find(keys.cluster_weights_key);
+      if (action_it == actions_to_process.end()) {
+        actions_to_process[std::move(keys.cluster_weights_key)] =
+            std::move(keys.cluster_names_key);
+      }
+    }
+  }
+  // First pass of all unique WeightedCluster actions: if the exact same
+  // weighted target policy (same clusters and weights) appears in the old map,
+  // then that old action name is taken again and should be moved to the new
+  // map; any other action names from the old set of actions are candidates for
+  // reuse.
+  XdsClient::WeightedClusterIndexMap new_weighted_cluster_index_map;
+  for (auto action_it = actions_to_process.begin();
+       action_it != actions_to_process.end();) {
+    const std::string& cluster_names_key = action_it->second;
+    const std::string& cluster_weights_key = action_it->first;
+    auto old_cluster_names_map_it =
+        weighted_cluster_index_map_.find(cluster_names_key);
+    if (old_cluster_names_map_it != weighted_cluster_index_map_.end()) {
+      // Add cluster_names_key to the new map and copy next_index.
+      auto& new_cluster_names_info =
+          new_weighted_cluster_index_map[cluster_names_key];
+      new_cluster_names_info.next_index =
+          old_cluster_names_map_it->second.next_index;
+      // Lookup cluster_weights_key in old map.
+      auto& old_cluster_weights_map =
+          old_cluster_names_map_it->second.cluster_weights_map;
+      auto old_cluster_weights_map_it =
+          old_cluster_weights_map.find(cluster_weights_key);
+      if (old_cluster_weights_map_it != old_cluster_weights_map.end()) {
+        // same policy found, move from old map to new map.
+        new_cluster_names_info.cluster_weights_map[cluster_weights_key] =
+            old_cluster_weights_map_it->second;
+        old_cluster_weights_map.erase(old_cluster_weights_map_it);
+        // This action has been added to new map, so no need to process it
+        // again.
+        action_it = actions_to_process.erase(action_it);
+        continue;
+      }
+    }
+    ++action_it;
+  }
+  // Second pass of all remaining unique WeightedCluster actions: if clusters
+  // for a new action are the same as an old unused action, reuse the name.  If
+  // clusters differ, use a brand new name.
+  for (const auto& action : actions_to_process) {
+    const std::string& cluster_names_key = action.second;
+    const std::string& cluster_weights_key = action.first;
+    auto& new_cluster_names_info =
+        new_weighted_cluster_index_map[cluster_names_key];
+    auto& old_cluster_weights_map =
+        weighted_cluster_index_map_[cluster_names_key].cluster_weights_map;
+    auto old_cluster_weights_it = old_cluster_weights_map.begin();
+    if (old_cluster_weights_it != old_cluster_weights_map.end()) {
+      // There is something to reuse: this action uses the same set
+      // of clusters as a previous action and that action name is not
+      // already taken.
+      new_cluster_names_info.cluster_weights_map[cluster_weights_key] =
+          old_cluster_weights_it->second;
+      // Remove the name from being able to reuse again.
+      old_cluster_weights_map.erase(old_cluster_weights_it);
+    } else {
+      // There is nothing to reuse, take the next index to use and
+      // increment.
+      new_cluster_names_info.cluster_weights_map[cluster_weights_key] =
+          new_cluster_names_info.next_index++;
+    }
+  }
+  weighted_cluster_index_map_ = std::move(new_weighted_cluster_index_map);
+}
 
 grpc_error* XdsClient::CreateServiceConfig(
     const XdsApi::RdsUpdate& rds_update,
-    RefCountedPtr<ServiceConfig>* service_config) const {
+    RefCountedPtr<ServiceConfig>* service_config) {
+  UpdateWeightedClusterIndexMap(rds_update);
+  std::vector<std::string> actions_vector;
+  std::vector<std::string> route_table;
+  std::set<std::string> actions_set;
+  for (const auto& route : rds_update.routes) {
+    const std::string action_name =
+        route.weighted_clusters.empty()
+            ? route.cluster_name
+            : WeightedClustersActionName(route.weighted_clusters);
+    if (actions_set.find(action_name) == actions_set.end()) {
+      actions_set.emplace(action_name);
+      actions_vector.push_back(
+          route.weighted_clusters.empty()
+              ? CreateServiceConfigActionCluster(action_name)
+              : CreateServiceConfigActionWeightedCluster(
+                    action_name, route.weighted_clusters));
+    }
+    route_table.push_back(CreateServiceConfigRoute(
+        absl::StrFormat("%s:%s",
+                        route.weighted_clusters.empty() ? "cds" : "weighted",
+                        action_name),
+        route.service, route.method));
+  }
   std::vector<std::string> config_parts;
   config_parts.push_back(
       "{\n"
       "  \"loadBalancingConfig\":[\n"
       "    { \"xds_routing_experimental\":{\n"
       "      \"actions\":{\n");
-  std::vector<std::string> actions_vector;
-  std::set<std::string> actions_set;
-  for (size_t i = 0; i < rds_update.routes.size(); ++i) {
-    auto route = rds_update.routes[i];
-    if (actions_set.find(route.cluster_name) == actions_set.end()) {
-      actions_vector.push_back(
-          CreateServiceConfigActionCluster(route.cluster_name.c_str()));
-      actions_set.emplace(route.cluster_name);
-    }
-  }
   config_parts.push_back(absl::StrJoin(actions_vector, ",\n"));
   config_parts.push_back(
       "    },\n"
       "      \"routes\":[\n");
-  std::vector<std::string> routes_vector;
-  for (size_t i = 0; i < rds_update.routes.size(); ++i) {
-    auto route_info = rds_update.routes[i];
-    routes_vector.push_back(CreateServiceConfigRoute(
-        route_info.cluster_name.c_str(), route_info.service.c_str(),
-        route_info.method.c_str()));
-  }
-  config_parts.push_back(absl::StrJoin(routes_vector, ",\n"));
+  config_parts.push_back(absl::StrJoin(route_table, ",\n"));
   config_parts.push_back(
       "    ]\n"
       "    } }\n"
@@ -2226,6 +2385,12 @@ RefCountedPtr<XdsClient> XdsClient::GetFromChannelArgs(
       grpc_channel_args_find_pointer<XdsClient>(&args, GRPC_ARG_XDS_CLIENT);
   if (xds_client != nullptr) return xds_client->Ref();
   return nullptr;
+}
+
+grpc_channel_args* XdsClient::RemoveFromChannelArgs(
+    const grpc_channel_args& args) {
+  const char* arg_name = GRPC_ARG_XDS_CLIENT;
+  return grpc_channel_args_copy_and_remove(&args, &arg_name, 1);
 }
 
 }  // namespace grpc_core
