@@ -46,12 +46,9 @@ touch "$TOOLS_DIR"/src/proto/grpc/testing/__init__.py
     "$PROTO_SOURCE_DIR"/messages.proto \
     "$PROTO_SOURCE_DIR"/empty.proto
 
-# Compile the PHP extension.
-(cd src/php/ext/grpc && \
-  phpize && \
-  ./configure && \
-  make && \
-  make install)
+# Generate and compile the PHP extension.
+(pear package && \
+  find . -name grpc-*.tgz | xargs -I{} pecl install {})
 
 # Prepare generated PHP code.
 export CC=/usr/bin/gcc
@@ -61,13 +58,12 @@ export CC=/usr/bin/gcc
   composer install && \
   ./bin/generate_proto_php.sh)
 
-GRPC_VERBOSITY=debug GRPC_TRACE=xds_client,xds_resolver,cds_lb,eds_lb,priority_lb,weighted_target_lb,lrs_lb "$PYTHON" \
+GRPC_VERBOSITY=debug GRPC_TRACE=xds_client,xds_resolver,xds_routing_lb,cds_lb,eds_lb,priority_lb,weighted_target_lb,lrs_lb "$PYTHON" \
   tools/run_tests/run_xds_tests.py \
   --test_case=all \
   --project_id=grpc-testing \
   --source_image=projects/grpc-testing/global/images/xds-test-server \
   --path_to_server_binary=/java_server/grpc-java/interop-testing/build/install/grpc-interop-testing/bin/xds-test-server \
   --gcp_suffix=$(date '+%s') \
-  --only_stable_gcp_apis \
   --verbose \
-  --client_cmd='php -d extension=grpc.so -d extension=pthreads.so src/php/tests/interop/xds_client.php --server=xds-experimental:///{server_uri} --stats_port={stats_port} --qps={qps}'
+  --client_cmd='php -d extension=grpc.so -d extension=pthreads.so src/php/tests/interop/xds_client.php --server=xds:///{server_uri} --stats_port={stats_port} --qps={qps}'
