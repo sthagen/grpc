@@ -419,12 +419,6 @@ libs:
   - src/core/ext/filters/client_channel/subchannel.h
   - src/core/ext/filters/client_channel/subchannel_interface.h
   - src/core/ext/filters/client_channel/subchannel_pool_interface.h
-  - src/core/ext/filters/client_channel/xds/xds_api.h
-  - src/core/ext/filters/client_channel/xds/xds_bootstrap.h
-  - src/core/ext/filters/client_channel/xds/xds_channel.h
-  - src/core/ext/filters/client_channel/xds/xds_channel_args.h
-  - src/core/ext/filters/client_channel/xds/xds_client.h
-  - src/core/ext/filters/client_channel/xds/xds_client_stats.h
   - src/core/ext/filters/deadline/deadline_filter.h
   - src/core/ext/filters/http/client/http_client_filter.h
   - src/core/ext/filters/http/client_authority_filter.h
@@ -486,6 +480,7 @@ libs:
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener.upb.h
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener_components.upb.h
   - src/core/ext/upb-generated/envoy/config/listener/v3/udp_listener_config.upb.h
+  - src/core/ext/upb-generated/envoy/config/rbac/v3/rbac.upb.h
   - src/core/ext/upb-generated/envoy/config/route/v3/route.upb.h
   - src/core/ext/upb-generated/envoy/config/route/v3/route_components.upb.h
   - src/core/ext/upb-generated/envoy/config/route/v3/scoped_route.upb.h
@@ -503,8 +498,12 @@ libs:
   - src/core/ext/upb-generated/envoy/service/load_stats/v3/lrs.upb.h
   - src/core/ext/upb-generated/envoy/service/route/v3/rds.upb.h
   - src/core/ext/upb-generated/envoy/service/route/v3/srds.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/metadata.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/number.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/path.upb.h
   - src/core/ext/upb-generated/envoy/type/matcher/v3/regex.upb.h
   - src/core/ext/upb-generated/envoy/type/matcher/v3/string.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/value.upb.h
   - src/core/ext/upb-generated/envoy/type/metadata/v3/metadata.upb.h
   - src/core/ext/upb-generated/envoy/type/tracing/v3/custom_tag.upb.h
   - src/core/ext/upb-generated/envoy/type/v3/http.upb.h
@@ -513,6 +512,7 @@ libs:
   - src/core/ext/upb-generated/envoy/type/v3/semantic_version.upb.h
   - src/core/ext/upb-generated/gogoproto/gogo.upb.h
   - src/core/ext/upb-generated/google/api/annotations.upb.h
+  - src/core/ext/upb-generated/google/api/expr/v1alpha1/syntax.upb.h
   - src/core/ext/upb-generated/google/api/http.upb.h
   - src/core/ext/upb-generated/google/protobuf/any.upb.h
   - src/core/ext/upb-generated/google/protobuf/descriptor.upb.h
@@ -533,6 +533,12 @@ libs:
   - src/core/ext/upb-generated/udpa/annotations/versioning.upb.h
   - src/core/ext/upb-generated/udpa/data/orca/v1/orca_load_report.upb.h
   - src/core/ext/upb-generated/validate/validate.upb.h
+  - src/core/ext/xds/xds_api.h
+  - src/core/ext/xds/xds_bootstrap.h
+  - src/core/ext/xds/xds_channel.h
+  - src/core/ext/xds/xds_channel_args.h
+  - src/core/ext/xds/xds_client.h
+  - src/core/ext/xds/xds_client_stats.h
   - src/core/lib/avl/avl.h
   - src/core/lib/backoff/backoff.h
   - src/core/lib/channel/channel_args.h
@@ -643,6 +649,10 @@ libs:
   - src/core/lib/iomgr/wakeup_fd_posix.h
   - src/core/lib/iomgr/work_serializer.h
   - src/core/lib/json/json.h
+  - src/core/lib/security/authorization/authorization_engine.h
+  - src/core/lib/security/authorization/evaluate_args.h
+  - src/core/lib/security/authorization/mock_cel/activation.h
+  - src/core/lib/security/authorization/mock_cel/cel_value.h
   - src/core/lib/security/context/security_context.h
   - src/core/lib/security/credentials/alts/alts_credentials.h
   - src/core/lib/security/credentials/alts/check_gcp_environment.h
@@ -798,11 +808,6 @@ libs:
   - src/core/ext/filters/client_channel/service_config_parser.cc
   - src/core/ext/filters/client_channel/subchannel.cc
   - src/core/ext/filters/client_channel/subchannel_pool_interface.cc
-  - src/core/ext/filters/client_channel/xds/xds_api.cc
-  - src/core/ext/filters/client_channel/xds/xds_bootstrap.cc
-  - src/core/ext/filters/client_channel/xds/xds_channel_secure.cc
-  - src/core/ext/filters/client_channel/xds/xds_client.cc
-  - src/core/ext/filters/client_channel/xds/xds_client_stats.cc
   - src/core/ext/filters/client_idle/client_idle_filter.cc
   - src/core/ext/filters/deadline/deadline_filter.cc
   - src/core/ext/filters/http/client/http_client_filter.cc
@@ -875,6 +880,7 @@ libs:
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener.upb.c
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener_components.upb.c
   - src/core/ext/upb-generated/envoy/config/listener/v3/udp_listener_config.upb.c
+  - src/core/ext/upb-generated/envoy/config/rbac/v3/rbac.upb.c
   - src/core/ext/upb-generated/envoy/config/route/v3/route.upb.c
   - src/core/ext/upb-generated/envoy/config/route/v3/route_components.upb.c
   - src/core/ext/upb-generated/envoy/config/route/v3/scoped_route.upb.c
@@ -892,8 +898,12 @@ libs:
   - src/core/ext/upb-generated/envoy/service/load_stats/v3/lrs.upb.c
   - src/core/ext/upb-generated/envoy/service/route/v3/rds.upb.c
   - src/core/ext/upb-generated/envoy/service/route/v3/srds.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/metadata.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/number.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/path.upb.c
   - src/core/ext/upb-generated/envoy/type/matcher/v3/regex.upb.c
   - src/core/ext/upb-generated/envoy/type/matcher/v3/string.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/value.upb.c
   - src/core/ext/upb-generated/envoy/type/metadata/v3/metadata.upb.c
   - src/core/ext/upb-generated/envoy/type/tracing/v3/custom_tag.upb.c
   - src/core/ext/upb-generated/envoy/type/v3/http.upb.c
@@ -902,6 +912,7 @@ libs:
   - src/core/ext/upb-generated/envoy/type/v3/semantic_version.upb.c
   - src/core/ext/upb-generated/gogoproto/gogo.upb.c
   - src/core/ext/upb-generated/google/api/annotations.upb.c
+  - src/core/ext/upb-generated/google/api/expr/v1alpha1/syntax.upb.c
   - src/core/ext/upb-generated/google/api/http.upb.c
   - src/core/ext/upb-generated/google/protobuf/any.upb.c
   - src/core/ext/upb-generated/google/protobuf/descriptor.upb.c
@@ -922,6 +933,11 @@ libs:
   - src/core/ext/upb-generated/udpa/annotations/versioning.upb.c
   - src/core/ext/upb-generated/udpa/data/orca/v1/orca_load_report.upb.c
   - src/core/ext/upb-generated/validate/validate.upb.c
+  - src/core/ext/xds/xds_api.cc
+  - src/core/ext/xds/xds_bootstrap.cc
+  - src/core/ext/xds/xds_channel_secure.cc
+  - src/core/ext/xds/xds_client.cc
+  - src/core/ext/xds/xds_client_stats.cc
   - src/core/lib/avl/avl.cc
   - src/core/lib/backoff/backoff.cc
   - src/core/lib/channel/channel_args.cc
@@ -1045,6 +1061,8 @@ libs:
   - src/core/lib/iomgr/work_serializer.cc
   - src/core/lib/json/json_reader.cc
   - src/core/lib/json/json_writer.cc
+  - src/core/lib/security/authorization/authorization_engine.cc
+  - src/core/lib/security/authorization/evaluate_args.cc
   - src/core/lib/security/context/security_context.cc
   - src/core/lib/security/credentials/alts/alts_credentials.cc
   - src/core/lib/security/credentials/alts/check_gcp_environment.cc
@@ -1163,6 +1181,7 @@ libs:
   - absl/strings:strings
   - absl/status:status
   - absl/container:inlined_vector
+  - absl/container:flat_hash_set
   baselib: true
   deps_linkage: static
   dll: true
@@ -1189,6 +1208,7 @@ libs:
   headers:
   - test/core/util/cmdline.h
   - test/core/util/debugger_macros.h
+  - test/core/util/eval_args_mock_endpoint.h
   - test/core/util/fuzzer_util.h
   - test/core/util/grpc_profiler.h
   - test/core/util/histogram.h
@@ -1208,6 +1228,7 @@ libs:
   src:
   - test/core/util/cmdline.cc
   - test/core/util/debugger_macros.cc
+  - test/core/util/eval_args_mock_endpoint.cc
   - test/core/util/fuzzer_util.cc
   - test/core/util/grpc_profiler.cc
   - test/core/util/histogram.cc
@@ -1238,6 +1259,7 @@ libs:
   headers:
   - test/core/util/cmdline.h
   - test/core/util/debugger_macros.h
+  - test/core/util/eval_args_mock_endpoint.h
   - test/core/util/fuzzer_util.h
   - test/core/util/grpc_profiler.h
   - test/core/util/histogram.h
@@ -1257,6 +1279,7 @@ libs:
   src:
   - test/core/util/cmdline.cc
   - test/core/util/debugger_macros.cc
+  - test/core/util/eval_args_mock_endpoint.cc
   - test/core/util/fuzzer_util.cc
   - test/core/util/grpc_profiler.cc
   - test/core/util/histogram.cc
@@ -1344,12 +1367,6 @@ libs:
   - src/core/ext/filters/client_channel/subchannel.h
   - src/core/ext/filters/client_channel/subchannel_interface.h
   - src/core/ext/filters/client_channel/subchannel_pool_interface.h
-  - src/core/ext/filters/client_channel/xds/xds_api.h
-  - src/core/ext/filters/client_channel/xds/xds_bootstrap.h
-  - src/core/ext/filters/client_channel/xds/xds_channel.h
-  - src/core/ext/filters/client_channel/xds/xds_channel_args.h
-  - src/core/ext/filters/client_channel/xds/xds_client.h
-  - src/core/ext/filters/client_channel/xds/xds_client_stats.h
   - src/core/ext/filters/deadline/deadline_filter.h
   - src/core/ext/filters/http/client/http_client_filter.h
   - src/core/ext/filters/http/client_authority_filter.h
@@ -1411,6 +1428,7 @@ libs:
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener.upb.h
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener_components.upb.h
   - src/core/ext/upb-generated/envoy/config/listener/v3/udp_listener_config.upb.h
+  - src/core/ext/upb-generated/envoy/config/rbac/v3/rbac.upb.h
   - src/core/ext/upb-generated/envoy/config/route/v3/route.upb.h
   - src/core/ext/upb-generated/envoy/config/route/v3/route_components.upb.h
   - src/core/ext/upb-generated/envoy/config/route/v3/scoped_route.upb.h
@@ -1428,8 +1446,12 @@ libs:
   - src/core/ext/upb-generated/envoy/service/load_stats/v3/lrs.upb.h
   - src/core/ext/upb-generated/envoy/service/route/v3/rds.upb.h
   - src/core/ext/upb-generated/envoy/service/route/v3/srds.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/metadata.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/number.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/path.upb.h
   - src/core/ext/upb-generated/envoy/type/matcher/v3/regex.upb.h
   - src/core/ext/upb-generated/envoy/type/matcher/v3/string.upb.h
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/value.upb.h
   - src/core/ext/upb-generated/envoy/type/metadata/v3/metadata.upb.h
   - src/core/ext/upb-generated/envoy/type/tracing/v3/custom_tag.upb.h
   - src/core/ext/upb-generated/envoy/type/v3/http.upb.h
@@ -1438,6 +1460,7 @@ libs:
   - src/core/ext/upb-generated/envoy/type/v3/semantic_version.upb.h
   - src/core/ext/upb-generated/gogoproto/gogo.upb.h
   - src/core/ext/upb-generated/google/api/annotations.upb.h
+  - src/core/ext/upb-generated/google/api/expr/v1alpha1/syntax.upb.h
   - src/core/ext/upb-generated/google/api/http.upb.h
   - src/core/ext/upb-generated/google/protobuf/any.upb.h
   - src/core/ext/upb-generated/google/protobuf/descriptor.upb.h
@@ -1455,6 +1478,12 @@ libs:
   - src/core/ext/upb-generated/udpa/annotations/versioning.upb.h
   - src/core/ext/upb-generated/udpa/data/orca/v1/orca_load_report.upb.h
   - src/core/ext/upb-generated/validate/validate.upb.h
+  - src/core/ext/xds/xds_api.h
+  - src/core/ext/xds/xds_bootstrap.h
+  - src/core/ext/xds/xds_channel.h
+  - src/core/ext/xds/xds_channel_args.h
+  - src/core/ext/xds/xds_client.h
+  - src/core/ext/xds/xds_client_stats.h
   - src/core/lib/avl/avl.h
   - src/core/lib/backoff/backoff.h
   - src/core/lib/channel/channel_args.h
@@ -1660,11 +1689,6 @@ libs:
   - src/core/ext/filters/client_channel/service_config_parser.cc
   - src/core/ext/filters/client_channel/subchannel.cc
   - src/core/ext/filters/client_channel/subchannel_pool_interface.cc
-  - src/core/ext/filters/client_channel/xds/xds_api.cc
-  - src/core/ext/filters/client_channel/xds/xds_bootstrap.cc
-  - src/core/ext/filters/client_channel/xds/xds_channel.cc
-  - src/core/ext/filters/client_channel/xds/xds_client.cc
-  - src/core/ext/filters/client_channel/xds/xds_client_stats.cc
   - src/core/ext/filters/client_idle/client_idle_filter.cc
   - src/core/ext/filters/deadline/deadline_filter.cc
   - src/core/ext/filters/http/client/http_client_filter.cc
@@ -1735,6 +1759,7 @@ libs:
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener.upb.c
   - src/core/ext/upb-generated/envoy/config/listener/v3/listener_components.upb.c
   - src/core/ext/upb-generated/envoy/config/listener/v3/udp_listener_config.upb.c
+  - src/core/ext/upb-generated/envoy/config/rbac/v3/rbac.upb.c
   - src/core/ext/upb-generated/envoy/config/route/v3/route.upb.c
   - src/core/ext/upb-generated/envoy/config/route/v3/route_components.upb.c
   - src/core/ext/upb-generated/envoy/config/route/v3/scoped_route.upb.c
@@ -1752,8 +1777,12 @@ libs:
   - src/core/ext/upb-generated/envoy/service/load_stats/v3/lrs.upb.c
   - src/core/ext/upb-generated/envoy/service/route/v3/rds.upb.c
   - src/core/ext/upb-generated/envoy/service/route/v3/srds.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/metadata.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/number.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/path.upb.c
   - src/core/ext/upb-generated/envoy/type/matcher/v3/regex.upb.c
   - src/core/ext/upb-generated/envoy/type/matcher/v3/string.upb.c
+  - src/core/ext/upb-generated/envoy/type/matcher/v3/value.upb.c
   - src/core/ext/upb-generated/envoy/type/metadata/v3/metadata.upb.c
   - src/core/ext/upb-generated/envoy/type/tracing/v3/custom_tag.upb.c
   - src/core/ext/upb-generated/envoy/type/v3/http.upb.c
@@ -1762,6 +1791,7 @@ libs:
   - src/core/ext/upb-generated/envoy/type/v3/semantic_version.upb.c
   - src/core/ext/upb-generated/gogoproto/gogo.upb.c
   - src/core/ext/upb-generated/google/api/annotations.upb.c
+  - src/core/ext/upb-generated/google/api/expr/v1alpha1/syntax.upb.c
   - src/core/ext/upb-generated/google/api/http.upb.c
   - src/core/ext/upb-generated/google/protobuf/any.upb.c
   - src/core/ext/upb-generated/google/protobuf/descriptor.upb.c
@@ -1779,6 +1809,11 @@ libs:
   - src/core/ext/upb-generated/udpa/annotations/versioning.upb.c
   - src/core/ext/upb-generated/udpa/data/orca/v1/orca_load_report.upb.c
   - src/core/ext/upb-generated/validate/validate.upb.c
+  - src/core/ext/xds/xds_api.cc
+  - src/core/ext/xds/xds_bootstrap.cc
+  - src/core/ext/xds/xds_channel.cc
+  - src/core/ext/xds/xds_client.cc
+  - src/core/ext/xds/xds_client_stats.cc
   - src/core/lib/avl/avl.cc
   - src/core/lib/backoff/backoff.cc
   - src/core/lib/channel/channel_args.cc
@@ -2063,10 +2098,8 @@ libs:
   - include/grpcpp/alarm.h
   - include/grpcpp/alarm_impl.h
   - include/grpcpp/channel.h
-  - include/grpcpp/channel_impl.h
   - include/grpcpp/client_context.h
   - include/grpcpp/completion_queue.h
-  - include/grpcpp/completion_queue_impl.h
   - include/grpcpp/create_channel.h
   - include/grpcpp/create_channel_posix.h
   - include/grpcpp/ext/health_check_service_server_builder_option.h
@@ -2096,7 +2129,6 @@ libs:
   - include/grpcpp/impl/codegen/client_interceptor.h
   - include/grpcpp/impl/codegen/client_unary_call.h
   - include/grpcpp/impl/codegen/completion_queue.h
-  - include/grpcpp/impl/codegen/completion_queue_impl.h
   - include/grpcpp/impl/codegen/completion_queue_tag.h
   - include/grpcpp/impl/codegen/config.h
   - include/grpcpp/impl/codegen/config_protobuf.h
@@ -2164,7 +2196,6 @@ libs:
   - include/grpcpp/support/async_unary_call_impl.h
   - include/grpcpp/support/byte_buffer.h
   - include/grpcpp/support/channel_arguments.h
-  - include/grpcpp/support/channel_arguments_impl.h
   - include/grpcpp/support/client_callback.h
   - include/grpcpp/support/client_callback_impl.h
   - include/grpcpp/support/client_interceptor.h
@@ -2276,7 +2307,6 @@ libs:
   public_headers:
   - include/grpc++/support/error_details.h
   - include/grpcpp/support/error_details.h
-  - include/grpcpp/support/error_details_impl.h
   headers: []
   src:
   - src/proto/grpc/status/status.proto
@@ -2446,10 +2476,8 @@ libs:
   - include/grpcpp/alarm.h
   - include/grpcpp/alarm_impl.h
   - include/grpcpp/channel.h
-  - include/grpcpp/channel_impl.h
   - include/grpcpp/client_context.h
   - include/grpcpp/completion_queue.h
-  - include/grpcpp/completion_queue_impl.h
   - include/grpcpp/create_channel.h
   - include/grpcpp/create_channel_posix.h
   - include/grpcpp/ext/health_check_service_server_builder_option.h
@@ -2479,7 +2507,6 @@ libs:
   - include/grpcpp/impl/codegen/client_interceptor.h
   - include/grpcpp/impl/codegen/client_unary_call.h
   - include/grpcpp/impl/codegen/completion_queue.h
-  - include/grpcpp/impl/codegen/completion_queue_impl.h
   - include/grpcpp/impl/codegen/completion_queue_tag.h
   - include/grpcpp/impl/codegen/config.h
   - include/grpcpp/impl/codegen/config_protobuf.h
@@ -2547,7 +2574,6 @@ libs:
   - include/grpcpp/support/async_unary_call_impl.h
   - include/grpcpp/support/byte_buffer.h
   - include/grpcpp/support/channel_arguments.h
-  - include/grpcpp/support/channel_arguments_impl.h
   - include/grpcpp/support/client_callback.h
   - include/grpcpp/support/client_callback_impl.h
   - include/grpcpp/support/client_interceptor.h
@@ -4750,6 +4776,19 @@ targets:
   - address_sorting
   - upb
   uses_polling: false
+- name: authorization_engine_test
+  gtest: true
+  build: test
+  language: c++
+  headers: []
+  src:
+  - test/core/security/authorization_engine_test.cc
+  deps:
+  - grpc_test_util
+  - grpc
+  - gpr
+  - address_sorting
+  - upb
 - name: backoff_test
   gtest: true
   build: test
@@ -5777,6 +5816,19 @@ targets:
   - grpc++_error_details
   - grpc_test_util
   - grpc++
+  - grpc
+  - gpr
+  - address_sorting
+  - upb
+- name: evaluate_args_test
+  gtest: true
+  build: test
+  language: c++
+  headers: []
+  src:
+  - test/core/security/evaluate_args_test.cc
+  deps:
+  - grpc_test_util
   - grpc
   - gpr
   - address_sorting
@@ -7190,6 +7242,7 @@ targets:
 - name: stranded_event_test
   gtest: true
   build: test
+  run: false
   language: c++
   headers:
   - test/core/end2end/cq_verifier.h
@@ -7468,6 +7521,7 @@ targets:
   headers:
   - test/core/util/cmdline.h
   - test/core/util/debugger_macros.h
+  - test/core/util/eval_args_mock_endpoint.h
   - test/core/util/fuzzer_util.h
   - test/core/util/grpc_profiler.h
   - test/core/util/histogram.h
@@ -7490,6 +7544,7 @@ targets:
   - src/proto/grpc/testing/simple_messages.proto
   - test/core/util/cmdline.cc
   - test/core/util/debugger_macros.cc
+  - test/core/util/eval_args_mock_endpoint.cc
   - test/core/util/fuzzer_util.cc
   - test/core/util/grpc_profiler.cc
   - test/core/util/histogram.cc
