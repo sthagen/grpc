@@ -38,11 +38,11 @@
 #include <grpcpp/server_builder.h>
 
 #include "src/core/ext/filters/client_channel/lb_policy/grpclb/grpclb_balancer_addresses.h"
-#include "src/core/ext/filters/client_channel/parse_address.h"
 #include "src/core/ext/filters/client_channel/resolver/fake/fake_resolver.h"
 #include "src/core/ext/filters/client_channel/server_address.h"
 #include "src/core/lib/gprpp/ref_counted_ptr.h"
 #include "src/core/lib/gprpp/thd.h"
+#include "src/core/lib/iomgr/parse_address.h"
 #include "src/core/lib/iomgr/sockaddr.h"
 #include "src/core/lib/transport/authority_override.h"
 
@@ -244,7 +244,7 @@ class ClientChannelStressTest {
     grpc_core::Resolver::Result result;
     grpc_error* error = GRPC_ERROR_NONE;
     result.service_config = grpc_core::ServiceConfig::Create(
-        "{\"loadBalancingConfig\":[{\"grpclb\":{}}]}", &error);
+        nullptr, "{\"loadBalancingConfig\":[{\"grpclb\":{}}]}", &error);
     GPR_ASSERT(error == GRPC_ERROR_NONE);
     grpc_core::ServerAddressList balancer_addresses =
         CreateAddressListFromAddressDataList(balancer_address_data);

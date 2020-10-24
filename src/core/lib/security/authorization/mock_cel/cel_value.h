@@ -32,12 +32,14 @@
 
 #include <grpc/support/port_platform.h>
 
-#include "absl/strings/string_view.h"
+#include <memory>
 
-namespace google {
-namespace api {
-namespace expr {
-namespace runtime {
+#include "absl/memory/memory.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+
+namespace grpc_core {
+namespace mock_cel {
 
 // Break cyclic depdendencies for container types.
 class CelMap {
@@ -89,9 +91,7 @@ class ContainerBackedMapImpl : public CelMap {
   }
 };
 
-}  // namespace runtime
-}  // namespace expr
-}  // namespace api
-}  // namespace google
+}  // namespace mock_cel
+}  // namespace grpc_core
 
 #endif  // GRPC_CORE_LIB_SECURITY_AUTHORIZATION_MOCK_CEL_CEL_VALUE_H

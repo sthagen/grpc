@@ -48,7 +48,7 @@ const char* ConnectivityStateName(grpc_connectivity_state state);
 class ConnectivityStateWatcherInterface
     : public InternallyRefCounted<ConnectivityStateWatcherInterface> {
  public:
-  virtual ~ConnectivityStateWatcherInterface() = default;
+  ~ConnectivityStateWatcherInterface() override = default;
 
   // Notifies the watcher that the state has changed to new_state.
   virtual void Notify(grpc_connectivity_state new_state,
@@ -63,18 +63,18 @@ class ConnectivityStateWatcherInterface
 class AsyncConnectivityStateWatcherInterface
     : public ConnectivityStateWatcherInterface {
  public:
-  virtual ~AsyncConnectivityStateWatcherInterface() = default;
+  ~AsyncConnectivityStateWatcherInterface() override = default;
 
   // Schedules a closure on the ExecCtx to invoke
   // OnConnectivityStateChange() asynchronously.
   void Notify(grpc_connectivity_state new_state,
-              const absl::Status& status) override final;
+              const absl::Status& status) final;
 
  protected:
   class Notifier;
 
-  // If \a combiner is nullptr, then the notification will be scheduled on the
-  // ExecCtx.
+  // If \a work_serializer is nullptr, then the notification will be scheduled
+  // on the ExecCtx.
   explicit AsyncConnectivityStateWatcherInterface(
       std::shared_ptr<WorkSerializer> work_serializer = nullptr)
       : work_serializer_(std::move(work_serializer)) {}

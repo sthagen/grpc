@@ -40,12 +40,12 @@
 #include "absl/strings/str_format.h"
 #include "absl/types/optional.h"
 
-#include "src/core/ext/filters/client_channel/parse_address.h"
 #include "src/core/ext/filters/client_channel/resolver/fake/fake_resolver.h"
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/host_port.h"
 #include "src/core/lib/gprpp/thd.h"
 #include "src/core/lib/iomgr/error.h"
+#include "src/core/lib/iomgr/parse_address.h"
 #include "src/core/lib/security/credentials/alts/alts_credentials.h"
 #include "src/core/lib/security/credentials/credentials.h"
 #include "src/core/lib/security/security_connector/alts/alts_security_connector.h"
@@ -224,8 +224,14 @@ class TestServer {
   }
 
   ~TestServer() {
-    grpc_server_shutdown_and_notify(server_, cq_, nullptr);
     thread_.join();
+    void* shutdown_and_notify_tag = this;
+    grpc_server_shutdown_and_notify(server_, cq_, shutdown_and_notify_tag);
+    grpc_event event = grpc_completion_queue_next(
+        cq_, gpr_inf_future(GPR_CLOCK_REALTIME), nullptr);
+    GPR_ASSERT(event.type == GRPC_OP_COMPLETE);
+    GPR_ASSERT(event.tag == shutdown_and_notify_tag);
+    GPR_ASSERT(event.success);
     grpc_server_destroy(server_);
     grpc_completion_queue_shutdown(cq_);
     while (grpc_completion_queue_next(cq_, gpr_inf_future(GPR_CLOCK_REALTIME),
@@ -243,7 +249,7 @@ class TestServer {
     grpc_call_details_init(&call_details);
     grpc_metadata_array request_metadata_recv;
     grpc_metadata_array_init(&request_metadata_recv);
-    void* tag = this;
+    void* tag = &call_details;
     grpc_call* call;
     grpc_call_error error = grpc_server_request_call(
         server_, &call, &call_details, &request_metadata_recv, cq_, cq_, tag);

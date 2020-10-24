@@ -93,7 +93,7 @@ class PriorityLb : public LoadBalancingPolicy {
    public:
     ChildPriority(RefCountedPtr<PriorityLb> priority_policy, std::string name);
 
-    ~ChildPriority() {
+    ~ChildPriority() override {
       priority_policy_.reset(DEBUG_LOCATION, "ChildPriority");
     }
 
@@ -152,10 +152,10 @@ class PriorityLb : public LoadBalancingPolicy {
       explicit Helper(RefCountedPtr<ChildPriority> priority)
           : priority_(std::move(priority)) {}
 
-      ~Helper() { priority_.reset(DEBUG_LOCATION, "Helper"); }
+      ~Helper() override { priority_.reset(DEBUG_LOCATION, "Helper"); }
 
       RefCountedPtr<SubchannelInterface> CreateSubchannel(
-          const grpc_channel_args& args) override;
+          ServerAddress address, const grpc_channel_args& args) override;
       void UpdateState(grpc_connectivity_state state,
                        const absl::Status& status,
                        std::unique_ptr<SubchannelPicker> picker) override;
@@ -202,7 +202,7 @@ class PriorityLb : public LoadBalancingPolicy {
     bool failover_timer_callback_pending_ = false;
   };
 
-  ~PriorityLb();
+  ~PriorityLb() override;
 
   void ShutdownLocked() override;
 
@@ -736,10 +736,10 @@ void PriorityLb::ChildPriority::Helper::RequestReresolution() {
 
 RefCountedPtr<SubchannelInterface>
 PriorityLb::ChildPriority::Helper::CreateSubchannel(
-    const grpc_channel_args& args) {
+    ServerAddress address, const grpc_channel_args& args) {
   if (priority_->priority_policy_->shutting_down_) return nullptr;
   return priority_->priority_policy_->channel_control_helper()
-      ->CreateSubchannel(args);
+      ->CreateSubchannel(std::move(address), args);
 }
 
 void PriorityLb::ChildPriority::Helper::UpdateState(

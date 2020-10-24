@@ -58,7 +58,6 @@ grpc_channel_num_external_connectivity_watchers_type grpc_channel_num_external_c
 grpc_channel_watch_connectivity_state_type grpc_channel_watch_connectivity_state_import;
 grpc_channel_support_connectivity_watcher_type grpc_channel_support_connectivity_watcher_import;
 grpc_channel_create_call_type grpc_channel_create_call_import;
-grpc_channel_ping_type grpc_channel_ping_import;
 grpc_channel_register_call_type grpc_channel_register_call_import;
 grpc_channel_create_registered_call_type grpc_channel_create_registered_call_import;
 grpc_call_arena_alloc_type grpc_call_arena_alloc_import;
@@ -171,6 +170,7 @@ grpc_tls_key_materials_config_set_version_type grpc_tls_key_materials_config_set
 grpc_tls_key_materials_config_get_version_type grpc_tls_key_materials_config_get_version_import;
 grpc_tls_credential_reload_config_create_type grpc_tls_credential_reload_config_create_import;
 grpc_tls_server_authorization_check_config_create_type grpc_tls_server_authorization_check_config_create_import;
+grpc_xds_credentials_create_type grpc_xds_credentials_create_import;
 grpc_raw_byte_buffer_create_type grpc_raw_byte_buffer_create_import;
 grpc_raw_compressed_byte_buffer_create_type grpc_raw_compressed_byte_buffer_create_import;
 grpc_byte_buffer_copy_type grpc_byte_buffer_copy_import;
@@ -332,7 +332,6 @@ void grpc_rb_load_imports(HMODULE library) {
   grpc_channel_watch_connectivity_state_import = (grpc_channel_watch_connectivity_state_type) GetProcAddress(library, "grpc_channel_watch_connectivity_state");
   grpc_channel_support_connectivity_watcher_import = (grpc_channel_support_connectivity_watcher_type) GetProcAddress(library, "grpc_channel_support_connectivity_watcher");
   grpc_channel_create_call_import = (grpc_channel_create_call_type) GetProcAddress(library, "grpc_channel_create_call");
-  grpc_channel_ping_import = (grpc_channel_ping_type) GetProcAddress(library, "grpc_channel_ping");
   grpc_channel_register_call_import = (grpc_channel_register_call_type) GetProcAddress(library, "grpc_channel_register_call");
   grpc_channel_create_registered_call_import = (grpc_channel_create_registered_call_type) GetProcAddress(library, "grpc_channel_create_registered_call");
   grpc_call_arena_alloc_import = (grpc_call_arena_alloc_type) GetProcAddress(library, "grpc_call_arena_alloc");
@@ -445,6 +444,7 @@ void grpc_rb_load_imports(HMODULE library) {
   grpc_tls_key_materials_config_get_version_import = (grpc_tls_key_materials_config_get_version_type) GetProcAddress(library, "grpc_tls_key_materials_config_get_version");
   grpc_tls_credential_reload_config_create_import = (grpc_tls_credential_reload_config_create_type) GetProcAddress(library, "grpc_tls_credential_reload_config_create");
   grpc_tls_server_authorization_check_config_create_import = (grpc_tls_server_authorization_check_config_create_type) GetProcAddress(library, "grpc_tls_server_authorization_check_config_create");
+  grpc_xds_credentials_create_import = (grpc_xds_credentials_create_type) GetProcAddress(library, "grpc_xds_credentials_create");
   grpc_raw_byte_buffer_create_import = (grpc_raw_byte_buffer_create_type) GetProcAddress(library, "grpc_raw_byte_buffer_create");
   grpc_raw_compressed_byte_buffer_create_import = (grpc_raw_compressed_byte_buffer_create_type) GetProcAddress(library, "grpc_raw_compressed_byte_buffer_create");
   grpc_byte_buffer_copy_import = (grpc_byte_buffer_copy_type) GetProcAddress(library, "grpc_byte_buffer_copy");

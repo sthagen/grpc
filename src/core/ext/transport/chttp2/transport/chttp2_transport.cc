@@ -69,7 +69,6 @@
 #define DEFAULT_KEEPALIVE_PERMIT_WITHOUT_CALLS false
 #define KEEPALIVE_TIME_BACKOFF_MULTIPLIER 2
 
-#define DEFAULT_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS 300000 /* 5 minutes */
 #define DEFAULT_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS 300000 /* 5 minutes */
 #define DEFAULT_MAX_PINGS_BETWEEN_DATA 2
 #define DEFAULT_MAX_PING_STRIKES 2
@@ -89,8 +88,6 @@ static bool g_default_client_keepalive_permit_without_calls =
 static bool g_default_server_keepalive_permit_without_calls =
     DEFAULT_KEEPALIVE_PERMIT_WITHOUT_CALLS;
 
-static int g_default_min_sent_ping_interval_without_data_ms =
-    DEFAULT_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS;
 static int g_default_min_recv_ping_interval_without_data_ms =
     DEFAULT_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS;
 static int g_default_max_pings_without_data = DEFAULT_MAX_PINGS_BETWEEN_DATA;
@@ -140,7 +137,6 @@ static void post_destructive_reclaimer(grpc_chttp2_transport* t);
 static void close_transport_locked(grpc_chttp2_transport* t, grpc_error* error);
 static void end_all_the_calls(grpc_chttp2_transport* t, grpc_error* error);
 
-static void schedule_bdp_ping_locked(grpc_chttp2_transport* t);
 static void start_bdp_ping(void* tp, grpc_error* error);
 static void finish_bdp_ping(void* tp, grpc_error* error);
 static void start_bdp_ping_locked(void* tp, grpc_error* error);
@@ -274,15 +270,6 @@ static bool read_channel_args(grpc_chttp2_transport* t,
           &channel_args->args[i], {g_default_max_ping_strikes, 0, INT_MAX});
     } else if (0 ==
                strcmp(channel_args->args[i].key,
-                      GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS)) {
-      t->ping_policy.min_sent_ping_interval_without_data =
-          grpc_channel_arg_get_integer(
-              &channel_args->args[i],
-              grpc_integer_options{
-                  g_default_min_sent_ping_interval_without_data_ms, 0,
-                  INT_MAX});
-    } else if (0 ==
-               strcmp(channel_args->args[i].key,
                       GRPC_ARG_HTTP2_MIN_RECV_PING_INTERVAL_WITHOUT_DATA_MS)) {
       t->ping_policy.min_recv_ping_interval_without_data =
           grpc_channel_arg_get_integer(
@@ -409,8 +396,6 @@ static void init_transport_keepalive_settings(grpc_chttp2_transport* t) {
 
 static void configure_transport_ping_policy(grpc_chttp2_transport* t) {
   t->ping_policy.max_pings_without_data = g_default_max_pings_without_data;
-  t->ping_policy.min_sent_ping_interval_without_data =
-      g_default_min_sent_ping_interval_without_data_ms;
   t->ping_policy.max_ping_strikes = g_default_max_ping_strikes;
   t->ping_policy.min_recv_ping_interval_without_data =
       g_default_min_recv_ping_interval_without_data_ms;
@@ -435,7 +420,9 @@ static void init_keepalive_pings_if_enabled(grpc_chttp2_transport* t) {
 grpc_chttp2_transport::grpc_chttp2_transport(
     const grpc_channel_args* channel_args, grpc_endpoint* ep, bool is_client,
     grpc_resource_user* resource_user)
-    : refs(1, &grpc_trace_chttp2_refcount),
+    : refs(1, GRPC_TRACE_FLAG_ENABLED(grpc_trace_chttp2_refcount)
+                  ? "chttp2_refcount"
+                  : nullptr),
       ep(ep),
       peer_string(grpc_endpoint_get_peer(ep)),
       resource_user(resource_user),
@@ -511,8 +498,7 @@ grpc_chttp2_transport::grpc_chttp2_transport(
   init_keepalive_pings_if_enabled(this);
 
   if (enable_bdp) {
-    GRPC_CHTTP2_REF_TRANSPORT(this, "bdp_ping");
-    schedule_bdp_ping_locked(this);
+    bdp_ping_blocked = true;
     grpc_chttp2_act_on_flowctl_action(flow_control->PeriodicUpdate(), this,
                                       nullptr);
   }
@@ -674,9 +660,6 @@ grpc_chttp2_stream::~grpc_chttp2_stream() {
       GRPC_STREAM_COMPRESSION_IDENTITY_DECOMPRESS) {
     grpc_slice_buffer_destroy_internal(&decompressed_data_buffer);
   }
-
-  grpc_chttp2_list_remove_stalled_by_transport(t, this);
-  grpc_chttp2_list_remove_stalled_by_stream(t, this);
 
   for (int i = 0; i < STREAM_LIST_COUNT; i++) {
     if (GPR_UNLIKELY(included[i])) {
@@ -861,6 +844,9 @@ static void inc_initiate_write_reason(
       break;
     case GRPC_CHTTP2_INITIATE_WRITE_APPLICATION_PING:
       GRPC_STATS_INC_HTTP2_INITIATE_WRITE_DUE_TO_APPLICATION_PING();
+      break;
+    case GRPC_CHTTP2_INITIATE_WRITE_BDP_PING:
+      GRPC_STATS_INC_HTTP2_INITIATE_WRITE_DUE_TO_BDP_ESTIMATOR_PING();
       break;
     case GRPC_CHTTP2_INITIATE_WRITE_KEEPALIVE_PING:
       GRPC_STATS_INC_HTTP2_INITIATE_WRITE_DUE_TO_KEEPALIVE_PING();
@@ -1055,7 +1041,7 @@ static void queue_setting_update(grpc_chttp2_transport* t,
   }
   if (use_value != t->settings[GRPC_LOCAL_SETTINGS][id]) {
     t->settings[GRPC_LOCAL_SETTINGS][id] = use_value;
-    t->dirtied_local_settings = 1;
+    t->dirtied_local_settings = true;
   }
 }
 
@@ -2030,6 +2016,8 @@ static void remove_stream(grpc_chttp2_transport* t, uint32_t id,
   if (grpc_chttp2_list_remove_writable_stream(t, s)) {
     GRPC_CHTTP2_STREAM_UNREF(s, "chttp2_writing:remove_stream");
   }
+  grpc_chttp2_list_remove_stalled_by_stream(t, s);
+  grpc_chttp2_list_remove_stalled_by_transport(t, s);
 
   GRPC_ERROR_UNREF(error);
 
@@ -2496,11 +2484,6 @@ static void read_action_locked(void* tp, grpc_error* error) {
     grpc_error* errors[3] = {GRPC_ERROR_REF(error), GRPC_ERROR_NONE,
                              GRPC_ERROR_NONE};
     for (; i < t->read_buffer.count && errors[1] == GRPC_ERROR_NONE; i++) {
-      grpc_core::BdpEstimator* bdp_est = t->flow_control->bdp_estimator();
-      if (bdp_est) {
-        bdp_est->AddIncomingBytes(
-            static_cast<int64_t> GRPC_SLICE_LENGTH(t->read_buffer.slices[i]));
-      }
       errors[1] = grpc_chttp2_perform_read(t, t->read_buffer.slices[i]);
     }
     if (errors[1] != GRPC_ERROR_NONE) {
@@ -2579,7 +2562,7 @@ static void continue_read_action_locked(grpc_chttp2_transport* t) {
 
 // t is reffed prior to calling the first time, and once the callback chain
 // that kicks off finishes, it's unreffed
-static void schedule_bdp_ping_locked(grpc_chttp2_transport* t) {
+void schedule_bdp_ping_locked(grpc_chttp2_transport* t) {
   t->flow_control->bdp_estimator()->SchedulePing();
   send_ping_locked(
       t,
@@ -2587,6 +2570,9 @@ static void schedule_bdp_ping_locked(grpc_chttp2_transport* t) {
                         grpc_schedule_on_exec_ctx),
       GRPC_CLOSURE_INIT(&t->finish_bdp_ping_locked, finish_bdp_ping, t,
                         grpc_schedule_on_exec_ctx));
+  // TODO(yashykt): Enabling this causes internal b/168345569. Re-enable once
+  // fixed.
+  // grpc_chttp2_initiate_write(t, GRPC_CHTTP2_INITIATE_WRITE_BDP_PING);
 }
 
 static void start_bdp_ping(void* tp, grpc_error* error) {
@@ -2666,7 +2652,13 @@ static void next_bdp_ping_timer_expired_locked(void* tp, grpc_error* error) {
     GRPC_CHTTP2_UNREF_TRANSPORT(t, "bdp_ping");
     return;
   }
-  schedule_bdp_ping_locked(t);
+  if (t->flow_control->bdp_estimator()->accumulator() == 0) {
+    // Block the bdp ping till we receive more data.
+    t->bdp_ping_blocked = true;
+    GRPC_CHTTP2_UNREF_TRANSPORT(t, "bdp_ping");
+  } else {
+    schedule_bdp_ping_locked(t);
+  }
 }
 
 void grpc_chttp2_config_default_keepalive_args(grpc_channel_args* args,
@@ -2715,14 +2707,6 @@ void grpc_chttp2_config_default_keepalive_args(grpc_channel_args* args,
                              GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA)) {
         g_default_max_pings_without_data = grpc_channel_arg_get_integer(
             &args->args[i], {g_default_max_pings_without_data, 0, INT_MAX});
-      } else if (0 ==
-                 strcmp(
-                     args->args[i].key,
-                     GRPC_ARG_HTTP2_MIN_SENT_PING_INTERVAL_WITHOUT_DATA_MS)) {
-        g_default_min_sent_ping_interval_without_data_ms =
-            grpc_channel_arg_get_integer(
-                &args->args[i],
-                {g_default_min_sent_ping_interval_without_data_ms, 0, INT_MAX});
       } else if (0 ==
                  strcmp(
                      args->args[i].key,
@@ -3262,6 +3246,8 @@ const char* grpc_chttp2_initiate_write_reason_string(
       return "FLOW_CONTROL_UNSTALLED_BY_UPDATE";
     case GRPC_CHTTP2_INITIATE_WRITE_APPLICATION_PING:
       return "APPLICATION_PING";
+    case GRPC_CHTTP2_INITIATE_WRITE_BDP_PING:
+      return "BDP_PING";
     case GRPC_CHTTP2_INITIATE_WRITE_KEEPALIVE_PING:
       return "KEEPALIVE_PING";
     case GRPC_CHTTP2_INITIATE_WRITE_TRANSPORT_FLOW_CONTROL_UNSTALLED:

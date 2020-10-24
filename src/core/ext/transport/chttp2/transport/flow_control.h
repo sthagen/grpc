@@ -221,7 +221,7 @@ class TransportFlowControlDisabled final : public TransportFlowControlBase {
 class TransportFlowControl final : public TransportFlowControlBase {
  public:
   TransportFlowControl(const grpc_chttp2_transport* t, bool enable_bdp_probe);
-  ~TransportFlowControl() {}
+  ~TransportFlowControl() override {}
 
   bool flow_control_enabled() const override { return true; }
 
@@ -409,7 +409,7 @@ class StreamFlowControlDisabled : public StreamFlowControlBase {
 class StreamFlowControl final : public StreamFlowControlBase {
  public:
   StreamFlowControl(TransportFlowControl* tfc, const grpc_chttp2_stream* s);
-  ~StreamFlowControl() {
+  ~StreamFlowControl() override {
     tfc_->PreUpdateAnnouncedWindowOverIncomingWindow(announced_window_delta_);
   }
 
@@ -465,6 +465,16 @@ class StreamFlowControl final : public StreamFlowControlBase {
     tfc->PostUpdateAnnouncedWindowOverIncomingWindow(announced_window_delta_);
   }
 };
+
+class TestOnlyTransportTargetWindowEstimatesMocker {
+ public:
+  virtual ~TestOnlyTransportTargetWindowEstimatesMocker() {}
+  virtual double ComputeNextTargetInitialWindowSizeFromPeriodicUpdate(
+      double current_target) = 0;
+};
+
+extern TestOnlyTransportTargetWindowEstimatesMocker*
+    g_test_only_transport_target_window_estimates_mocker;
 
 }  // namespace chttp2
 }  // namespace grpc_core

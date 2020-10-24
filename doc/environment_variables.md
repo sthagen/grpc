@@ -68,7 +68,6 @@ some configuration as environment variables that can be set.
   - inproc - traces the in-process transport
   - http_keepalive - traces gRPC keepalive pings
   - flowctl - traces http2 flow control
-  - lrs_lb - traces lrs LB policy
   - op_failure - traces error information when failure is pushed onto a
     completion queue
   - pick_first - traces the pick first load balancing policy
@@ -90,6 +89,8 @@ some configuration as environment variables that can be set.
   - tsi - traces tsi transport security
   - weighted_target_lb - traces weighted_target LB policy
   - xds_client - traces xds client
+  - xds_cluster_manager_lb - traces cluster manager LB policy
+  - xds_cluster_impl_lb - traces cluster impl LB policy
   - xds_resolver - traces xds resolver
 
   The following tracers will only run in binaries built in DEBUG mode. This is

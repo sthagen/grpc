@@ -300,8 +300,8 @@
   if(gRPC_BACKWARDS_COMPATIBILITY_MODE)
     add_definitions(-DGPR_BACKWARDS_COMPATIBILITY_MODE)
     if(_gRPC_PLATFORM_MAC)
-      # some C++11 constructs not supported before OS X 10.9
-      set(CMAKE_OSX_DEPLOYMENT_TARGET 10.9)
+      # some C++11 constructs not supported before OS X 10.10
+      set(CMAKE_OSX_DEPLOYMENT_TARGET 10.10)
     endif()
   endif()
 
@@ -706,6 +706,7 @@
   )
   install(FILES
       <%text>${CMAKE_CURRENT_SOURCE_DIR}</%text>/cmake/modules/Findc-ares.cmake
+      <%text>${CMAKE_CURRENT_SOURCE_DIR}</%text>/cmake/modules/Findre2.cmake
     DESTINATION <%text>${gRPC_INSTALL_CMAKEDIR}</%text>/modules
   )
 

@@ -21,10 +21,14 @@ bazel=`pwd`/tools/bazel
 
 if [ $# -eq 0 ]; then
   UPB_OUTPUT_DIR=$PWD/src/core/ext/upb-generated
+  UPBDEFS_OUTPUT_DIR=$PWD/src/core/ext/upbdefs-generated
   rm -rf $UPB_OUTPUT_DIR
+  rm -rf $UPBDEFS_OUTPUT_DIR
   mkdir -p $UPB_OUTPUT_DIR
 else
-  UPB_OUTPUT_DIR=$1
+  UPB_OUTPUT_DIR=$1/upb-generated
+  UPBDEFS_OUTPUT_DIR=$1/upbdefs-generated
+  mkdir $UPB_OUTPUT_DIR
 fi
 
 $bazel build @com_google_protobuf//:protoc
@@ -46,12 +50,14 @@ proto_files=( \
   "envoy/config/core/v3/base.proto" \
   "envoy/config/core/v3/config_source.proto" \
   "envoy/config/core/v3/event_service_config.proto" \
+  "envoy/config/core/v3/extension.proto" \
   "envoy/config/core/v3/grpc_service.proto" \
   "envoy/config/core/v3/health_check.proto" \
   "envoy/config/core/v3/http_uri.proto" \
   "envoy/config/core/v3/protocol.proto" \
   "envoy/config/core/v3/proxy_protocol.proto" \
   "envoy/config/core/v3/socket_option.proto" \
+  "envoy/config/core/v3/substitution_format_string.proto" \
   "envoy/config/endpoint/v3/endpoint.proto" \
   "envoy/config/endpoint/v3/endpoint_components.proto" \
   "envoy/config/endpoint/v3/load_report.proto" \
@@ -89,8 +95,8 @@ proto_files=( \
   "envoy/type/v3/percent.proto" \
   "envoy/type/v3/range.proto" \
   "envoy/type/v3/semantic_version.proto" \
-  "gogoproto/gogo.proto" \
   "google/api/annotations.proto" \
+  "google/api/expr/v1alpha1/checked.proto" \
   "google/api/expr/v1alpha1/syntax.proto" \
   "google/api/http.proto" \
   "google/protobuf/any.proto" \
@@ -109,9 +115,16 @@ proto_files=( \
   "third_party/istio/security/proto/providers/google/meshca.proto" \
   "udpa/data/orca/v1/orca_load_report.proto" \
   "udpa/annotations/migrate.proto" \
+  "udpa/annotations/security.proto" \
   "udpa/annotations/sensitive.proto" \
   "udpa/annotations/status.proto" \
   "udpa/annotations/versioning.proto" \
+  "udpa/core/v1/authority.proto" \
+  "udpa/core/v1/collection_entry.proto" \
+  "udpa/core/v1/context_params.proto" \
+  "udpa/core/v1/resource_locator.proto" \
+  "udpa/core/v1/resource_name.proto" \
+  "udpa/core/v1/resource.proto" \
   "validate/validate.proto")
 
 for i in "${proto_files[@]}"
@@ -129,5 +142,17 @@ do
     --plugin=protoc-gen-upb=$UPB_PLUGIN
 done
 
+# In PHP build Makefile, the files with .upb.c suffix collide .upbdefs.c suffix due to a PHP buildsystem bug.
+# Work around this by placing the generated files with ".upbdefs.h" and ".upbdefs.c" suffix under a different directory.
+# See https://github.com/grpc/grpc/issues/23307
+
+# move all .upbdefs.h and .upbdefs.c files from under src/core/ext/upb-generated to src/core/ext/upbdefs-generated
+cp -r $UPB_OUTPUT_DIR $UPBDEFS_OUTPUT_DIR
+
+# remove files that don't belong under upb-generated
 find $UPB_OUTPUT_DIR -name "*.upbdefs.c" -type f -delete
 find $UPB_OUTPUT_DIR -name "*.upbdefs.h" -type f -delete
+
+# remove files that don't belong under upbdefs-generated
+find $UPBDEFS_OUTPUT_DIR -name "*.upb.h" -type f -delete
+find $UPBDEFS_OUTPUT_DIR -name "*.upb.c" -type f -delete

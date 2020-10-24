@@ -24,8 +24,7 @@
 
 #include "absl/strings/string_view.h"
 
-#include <grpc/impl/codegen/grpc_types.h>
-#include <grpc/impl/codegen/slice.h>
+#include <grpc/grpc.h>
 
 #include "src/core/ext/filters/client_channel/service_config.h"
 #include "src/core/ext/filters/client_channel/service_config_parser.h"
@@ -33,6 +32,9 @@
 #include "src/core/lib/gprpp/ref_counted.h"
 #include "src/core/lib/gprpp/ref_counted_ptr.h"
 #include "src/core/lib/transport/metadata_batch.h"
+
+// Channel arg key for ConfigSelector.
+#define GRPC_ARG_CONFIG_SELECTOR "grpc.internal.config_selector"
 
 namespace grpc_core {
 
@@ -52,6 +54,9 @@ class ConfigSelector : public RefCounted<ConfigSelector> {
     // The per-method parsed configs that will be passed to
     // ServiceConfigCallData.
     const ServiceConfigParser::ParsedConfigVector* method_configs = nullptr;
+    // A ref to the service config that contains method_configs, held by
+    // the call to ensure that method_configs lives long enough.
+    RefCountedPtr<ServiceConfig> service_config;
     // Call attributes that will be accessible to LB policy implementations.
     std::map<const char*, absl::string_view> call_attributes;
     // A callback that, if set, will be invoked when the call is
@@ -60,7 +65,20 @@ class ConfigSelector : public RefCounted<ConfigSelector> {
     std::function<void()> on_call_committed;
   };
 
-  virtual ~ConfigSelector() = default;
+  ~ConfigSelector() override = default;
+
+  virtual const char* name() const = 0;
+
+  // Will be called only if the two objects have the same name, so
+  // subclasses can be free to safely down-cast the argument.
+  virtual bool Equals(const ConfigSelector* other) const = 0;
+
+  static bool Equals(const ConfigSelector* cs1, const ConfigSelector* cs2) {
+    if (cs1 == nullptr) return cs2 == nullptr;
+    if (cs2 == nullptr) return false;
+    if (strcmp(cs1->name(), cs2->name()) != 0) return false;
+    return cs1->Equals(cs2);
+  }
 
   virtual CallConfig GetCallConfig(GetCallConfigArgs args) = 0;
 
@@ -73,14 +91,24 @@ class ConfigSelector : public RefCounted<ConfigSelector> {
 class DefaultConfigSelector : public ConfigSelector {
  public:
   explicit DefaultConfigSelector(RefCountedPtr<ServiceConfig> service_config)
-      : service_config_(std::move(service_config)) {}
+      : service_config_(std::move(service_config)) {
+    // The client channel code ensures that this will never be null.
+    // If neither the resolver nor the client application provide a
+    // config, a default empty config will be used.
+    GPR_DEBUG_ASSERT(service_config_ != nullptr);
+  }
+
+  const char* name() const override { return "default"; }
+
+  // Only comparing the ConfigSelector itself, not the underlying
+  // service config, so we always return true.
+  bool Equals(const ConfigSelector* other) const override { return true; }
 
   CallConfig GetCallConfig(GetCallConfigArgs args) override {
     CallConfig call_config;
-    if (service_config_ != nullptr) {
-      call_config.method_configs =
-          service_config_->GetMethodParsedConfigVector(*args.path);
-    }
+    call_config.method_configs =
+        service_config_->GetMethodParsedConfigVector(*args.path);
+    call_config.service_config = service_config_;
     return call_config;
   }
 

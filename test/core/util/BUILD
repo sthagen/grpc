@@ -39,6 +39,7 @@ grpc_cc_library(
     srcs = [
         "cmdline.cc",
         "eval_args_mock_endpoint.cc",
+        "examine_stack.cc",
         "fuzzer_util.cc",
         "grpc_profiler.cc",
         "histogram.cc",
@@ -50,6 +51,7 @@ grpc_cc_library(
         "port_isolated_runtime_environment.cc",
         "port_server_client.cc",
         "reconnect_server.cc",
+        "resolve_localhost_ip46.cc",
         "slice_splitter.cc",
         "subprocess_posix.cc",
         "subprocess_windows.cc",
@@ -61,6 +63,7 @@ grpc_cc_library(
     hdrs = [
         "cmdline.h",
         "eval_args_mock_endpoint.h",
+        "examine_stack.h",
         "fuzzer_util.h",
         "grpc_profiler.h",
         "histogram.h",
@@ -71,6 +74,7 @@ grpc_cc_library(
         "port.h",
         "port_server_client.h",
         "reconnect_server.h",
+        "resolve_localhost_ip46.h",
         "slice_splitter.h",
         "subprocess.h",
         "test_config.h",
@@ -83,10 +87,16 @@ grpc_cc_library(
         "tsan_suppressions.txt",
         "ubsan_suppressions.txt",
     ],
+    external_deps = [
+        "absl/debugging:failure_signal_handler",
+        "absl/debugging:stacktrace",
+        "absl/debugging:symbolize",
+    ],
     language = "C++",
     deps = [
         ":grpc_debugger_macros",
         "//:gpr",
+        "//:grpc_base_c",
         "//:grpc_common",
     ],
 )
@@ -129,8 +139,8 @@ grpc_cc_library(
     testonly = 1,
     srcs = ["fuzzer_corpus_test.cc"],
     external_deps = [
+        "absl/flags:flag",
         "gtest",
-        "gflags",
     ],
     tags = ["no_windows"],
     deps = [

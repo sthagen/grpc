@@ -240,11 +240,17 @@ class CLanguage(object):
         self._make_options = []
         self._use_cmake = True
         if self.platform == 'windows':
-            _check_compiler(
-                self.args.compiler,
-                ['default', 'cmake', 'cmake_vs2015', 'cmake_vs2017'])
+            _check_compiler(self.args.compiler, [
+                'default', 'cmake', 'cmake_vs2015', 'cmake_vs2017',
+                'cmake_vs2019'
+            ])
             _check_arch(self.args.arch, ['default', 'x64', 'x86'])
-            cmake_generator_option = 'Visual Studio 15 2017' if self.args.compiler == 'cmake_vs2017' else 'Visual Studio 14 2015'
+            if self.args.compiler == 'cmake_vs2019':
+                cmake_generator_option = 'Visual Studio 16 2019'
+            elif self.args.compiler == 'cmake_vs2017':
+                cmake_generator_option = 'Visual Studio 15 2017'
+            else:
+                cmake_generator_option = 'Visual Studio 14 2015'
             cmake_arch_option = 'x64' if self.args.arch == 'x64' else 'Win32'
             self._cmake_configure_extra_args = [
                 '-G', cmake_generator_option, '-A', cmake_arch_option
@@ -565,46 +571,6 @@ class RemoteNodeLanguage(object):
         return 'grpc-node'
 
 
-class PhpLanguage(object):
-
-    def configure(self, config, args):
-        self.config = config
-        self.args = args
-        _check_compiler(self.args.compiler, ['default'])
-        self._make_options = ['EMBED_OPENSSL=true', 'EMBED_ZLIB=true']
-
-    def test_specs(self):
-        return [
-            self.config.job_spec(['src/php/bin/run_tests.sh'],
-                                 environ=_FORCE_ENVIRON_FOR_WRAPPERS)
-        ]
-
-    def pre_build_steps(self):
-        return []
-
-    def make_targets(self):
-        return ['static_c', 'shared_c']
-
-    def make_options(self):
-        return self._make_options
-
-    def build_steps(self):
-        return [['tools/run_tests/helper_scripts/build_php.sh']]
-
-    def post_tests_steps(self):
-        return [['tools/run_tests/helper_scripts/post_tests_php.sh']]
-
-    def makefile_name(self):
-        return 'Makefile'
-
-    def dockerfile_dir(self):
-        return 'tools/dockerfile/test/php_jessie_%s' % _docker_arch_suffix(
-            self.args.arch)
-
-    def __str__(self):
-        return 'php'
-
-
 class Php7Language(object):
 
     def configure(self, config, args):
@@ -813,25 +779,29 @@ class PythonLanguage(object):
 
         if args.compiler == 'default':
             if os.name == 'nt':
-                return (python36_config,)
+                if args.iomgr_platform == 'gevent':
+                    # TODO(https://github.com/grpc/grpc/issues/23784) allow
+                    # gevent to run on later version once issue solved.
+                    return (python36_config,)
+                else:
+                    return (python38_config,)
             else:
                 if args.iomgr_platform == 'asyncio':
-                    return (python36_config,)
+                    return (python36_config, python38_config)
                 elif os.uname()[0] == 'Darwin':
                     # NOTE(rbellevi): Testing takes significantly longer on
                     # MacOS, so we restrict the number of interpreter versions
                     # tested.
                     return (
                         python27_config,
-                        python36_config,
-                        python37_config,
+                        python38_config,
                     )
                 else:
                     return (
                         python27_config,
                         python35_config,
-                        python36_config,
                         python37_config,
+                        python38_config,
                     )
         elif args.compiler == 'python2.7':
             return (python27_config,)
@@ -1130,7 +1100,7 @@ class ObjCLanguage(object):
         out.append(
             self.config.job_spec(
                 ['test/core/iomgr/ios/CFStreamTests/build_and_run_tests.sh'],
-                timeout_seconds=20 * 60,
+                timeout_seconds=60 * 60,
                 shortname='ios-test-cfstream-tests',
                 cpu_cost=1e6,
                 environ=_FORCE_ENVIRON_FOR_WRAPPERS))
@@ -1278,7 +1248,6 @@ _LANGUAGES = {
     'c++': CLanguage('cxx', 'c++'),
     'c': CLanguage('c', 'c'),
     'grpc-node': RemoteNodeLanguage(),
-    'php': PhpLanguage(),
     'php7': Php7Language(),
     'python': PythonLanguage(),
     'ruby': RubyLanguage(),
@@ -1446,11 +1415,30 @@ argp.add_argument(
 argp.add_argument(
     '--compiler',
     choices=[
-        'default', 'gcc4.9', 'gcc5.3', 'gcc7.4', 'gcc8.3', 'gcc_musl',
-        'clang3.6', 'clang3.7', 'python2.7', 'python3.5', 'python3.6',
-        'python3.7', 'python3.8', 'pypy', 'pypy3', 'python_alpine',
-        'all_the_cpythons', 'electron1.3', 'electron1.6', 'coreclr', 'cmake',
-        'cmake_vs2015', 'cmake_vs2017'
+        'default',
+        'gcc4.9',
+        'gcc5.3',
+        'gcc7.4',
+        'gcc8.3',
+        'gcc_musl',
+        'clang3.6',
+        'clang3.7',
+        'python2.7',
+        'python3.5',
+        'python3.6',
+        'python3.7',
+        'python3.8',
+        'pypy',
+        'pypy3',
+        'python_alpine',
+        'all_the_cpythons',
+        'electron1.3',
+        'electron1.6',
+        'coreclr',
+        'cmake',
+        'cmake_vs2015',
+        'cmake_vs2017',
+        'cmake_vs2019',
     ],
     default='default',
     help=

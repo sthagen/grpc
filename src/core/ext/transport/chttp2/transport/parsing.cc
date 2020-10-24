@@ -98,6 +98,7 @@ grpc_error* grpc_chttp2_perform_read(grpc_chttp2_transport* t,
                   .c_str());
         }
         ++cur;
+        // NOLINTNEXTLINE(bugprone-misplaced-widening-cast)
         t->deframe_state = static_cast<grpc_chttp2_deframe_transport_state>(
             1 + static_cast<int>(t->deframe_state));
       }
@@ -334,6 +335,16 @@ void grpc_chttp2_parsing_become_skip_parser(grpc_chttp2_transport* t) {
 }
 
 static grpc_error* init_data_frame_parser(grpc_chttp2_transport* t) {
+  // Update BDP accounting since we have received a data frame.
+  grpc_core::BdpEstimator* bdp_est = t->flow_control->bdp_estimator();
+  if (bdp_est) {
+    if (t->bdp_ping_blocked) {
+      t->bdp_ping_blocked = false;
+      GRPC_CHTTP2_REF_TRANSPORT(t, "bdp_ping");
+      schedule_bdp_ping_locked(t);
+    }
+    bdp_est->AddIncomingBytes(t->incoming_frame_size);
+  }
   grpc_chttp2_stream* s =
       grpc_chttp2_parsing_lookup_stream(t, t->incoming_stream_id);
   grpc_error* err = GRPC_ERROR_NONE;
@@ -437,7 +448,8 @@ static grpc_error* GPR_ATTRIBUTE_NOINLINE handle_metadata_size_limit_exceeded(
     size_t new_size, size_t metadata_size_limit) {
   gpr_log(GPR_DEBUG,
           "received initial metadata size exceeds limit (%" PRIuPTR
-          " vs. %" PRIuPTR ")",
+          " vs. %" PRIuPTR
+          "). GRPC_ARG_MAX_METADATA_SIZE can be set to increase this limit.",
           new_size, metadata_size_limit);
   grpc_chttp2_cancel_stream(
       t, s,
@@ -518,7 +530,10 @@ static grpc_error* on_trailing_header(void* tp, grpc_mdelem md) {
   if (new_size > metadata_size_limit) {
     gpr_log(GPR_DEBUG,
             "received trailing metadata size exceeds limit (%" PRIuPTR
-            " vs. %" PRIuPTR ")",
+            " vs. %" PRIuPTR
+            "). Please note that the status is also included in the trailing "
+            "metadata and a large status message can also trigger this. "
+            "GRPC_ARG_MAX_METADATA_SIZE can be set to increase this limit.",
             new_size, metadata_size_limit);
     grpc_chttp2_cancel_stream(
         t, s,
@@ -733,7 +748,7 @@ static grpc_error* init_settings_frame_parser(grpc_chttp2_transport* t) {
         &t->hpack_parser.table,
         t->settings[GRPC_ACKED_SETTINGS]
                    [GRPC_CHTTP2_SETTINGS_HEADER_TABLE_SIZE]);
-    t->sent_local_settings = 0;
+    t->sent_local_settings = false;
   }
   t->parser = grpc_chttp2_settings_parser_parse;
   t->parser_data = &t->simple.settings;

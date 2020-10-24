@@ -45,7 +45,6 @@ using ::opencensus::stats::View;
 using ::opencensus::stats::ViewDescriptor;
 using ::opencensus::stats::testing::TestUtils;
 using ::opencensus::tags::TagKey;
-using ::opencensus::tags::TagMap;
 using ::opencensus::tags::WithTagMap;
 
 static const auto TEST_TAG_KEY = TagKey::Register("my_key");
@@ -70,7 +69,7 @@ class StatsPluginEnd2EndTest : public ::testing::Test {
  protected:
   static void SetUpTestCase() { RegisterOpenCensusPlugin(); }
 
-  void SetUp() {
+  void SetUp() override {
     // Set up a synchronous server on a different thread to avoid the asynch
     // interface.
     ::grpc::ServerBuilder builder;
@@ -82,14 +81,14 @@ class StatsPluginEnd2EndTest : public ::testing::Test {
     server_ = builder.BuildAndStart();
     ASSERT_NE(nullptr, server_);
     ASSERT_NE(0, port);
-    server_address_ = absl::StrCat("0.0.0.0:", port);
+    server_address_ = absl::StrCat("localhost:", port);
     server_thread_ = std::thread(&StatsPluginEnd2EndTest::RunServerLoop, this);
 
     stub_ = EchoTestService::NewStub(::grpc::CreateChannel(
         server_address_, ::grpc::InsecureChannelCredentials()));
   }
 
-  void TearDown() {
+  void TearDown() override {
     server_->Shutdown();
     server_thread_.join();
   }

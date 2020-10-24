@@ -33,6 +33,8 @@ from oauth2client.client import GoogleCredentials
 import python_utils.jobset as jobset
 import python_utils.report_utils as report_utils
 
+from src.proto.grpc.health.v1 import health_pb2
+from src.proto.grpc.health.v1 import health_pb2_grpc
 from src.proto.grpc.testing import empty_pb2
 from src.proto.grpc.testing import messages_pb2
 from src.proto.grpc.testing import test_pb2_grpc
@@ -49,7 +51,6 @@ _TEST_CASES = [
     'backends_restart',
     'change_backend_service',
     'gentle_failover',
-    'new_instance_group_receives_traffic',
     'ping_pong',
     'remove_instance_group',
     'round_robin',
@@ -123,6 +124,12 @@ argp.add_argument(
     help='Command to launch xDS test client. {server_uri}, {stats_port} and '
     '{qps} references will be replaced using str.format(). GRPC_XDS_BOOTSTRAP '
     'will be set for the command')
+argp.add_argument(
+    '--client_hosts',
+    default=None,
+    help='Comma-separated list of hosts running client processes. If set, '
+    '--client_cmd is ignored and client processes are assumed to be running on '
+    'the specified hosts.')
 argp.add_argument('--zone', default='us-central1-a')
 argp.add_argument('--secondary_zone',
                   default='us-west1-b',
@@ -220,12 +227,16 @@ args = argp.parse_args()
 if args.verbose:
     logger.setLevel(logging.DEBUG)
 
+CLIENT_HOSTS = []
+if args.client_hosts:
+    CLIENT_HOSTS = args.client_hosts.split(',')
+
 _DEFAULT_SERVICE_PORT = 80
 _WAIT_FOR_BACKEND_SEC = args.wait_for_backend_sec
-_WAIT_FOR_OPERATION_SEC = 300
+_WAIT_FOR_OPERATION_SEC = 1200
 _INSTANCE_GROUP_SIZE = args.instance_group_size
 _NUM_TEST_RPCS = 10 * args.qps
-_WAIT_FOR_STATS_SEC = 180
+_WAIT_FOR_STATS_SEC = 360
 _WAIT_FOR_VALID_CONFIG_SEC = 60
 _WAIT_FOR_URL_MAP_PATCH_SEC = 300
 _CONNECTION_TIMEOUT_SEC = 60
@@ -256,9 +267,7 @@ _BOOTSTRAP_TEMPLATE = """
 # TODO(ericgribkoff) Add change_backend_service to this list once TD no longer
 # sends an update with no localities when adding the MIG to the backend service
 # can race with the URL map patch.
-_TESTS_TO_FAIL_ON_RPC_FAILURE = [
-    'new_instance_group_receives_traffic', 'ping_pong', 'round_robin'
-]
+_TESTS_TO_FAIL_ON_RPC_FAILURE = ['ping_pong', 'round_robin']
 # Tests that run UnaryCall and EmptyCall.
 _TESTS_TO_RUN_MULTIPLE_RPCS = ['path_matching', 'header_matching']
 # Tests that make UnaryCall with test metadata.
@@ -282,17 +291,25 @@ _SPONGE_XML_NAME = 'sponge_log.xml'
 
 
 def get_client_stats(num_rpcs, timeout_sec):
-    with grpc.insecure_channel('localhost:%d' % args.stats_port) as channel:
-        stub = test_pb2_grpc.LoadBalancerStatsServiceStub(channel)
-        request = messages_pb2.LoadBalancerStatsRequest()
-        request.num_rpcs = num_rpcs
-        request.timeout_sec = timeout_sec
-        rpc_timeout = timeout_sec + _CONNECTION_TIMEOUT_SEC
-        response = stub.GetClientStats(request,
-                                       wait_for_ready=True,
-                                       timeout=rpc_timeout)
-        logger.debug('Invoked GetClientStats RPC: %s', response)
-        return response
+    if CLIENT_HOSTS:
+        hosts = CLIENT_HOSTS
+    else:
+        hosts = ['localhost']
+    for host in hosts:
+        with grpc.insecure_channel('%s:%d' %
+                                   (host, args.stats_port)) as channel:
+            stub = test_pb2_grpc.LoadBalancerStatsServiceStub(channel)
+            request = messages_pb2.LoadBalancerStatsRequest()
+            request.num_rpcs = num_rpcs
+            request.timeout_sec = timeout_sec
+            rpc_timeout = timeout_sec + _CONNECTION_TIMEOUT_SEC
+            logger.debug('Invoking GetClientStats RPC to %s:%d:', host,
+                         args.stats_port)
+            response = stub.GetClientStats(request,
+                                           wait_for_ready=True,
+                                           timeout=rpc_timeout)
+            logger.debug('Invoked GetClientStats RPC to %s: %s', host, response)
+            return response
 
 
 class RpcDistributionError(Exception):
@@ -406,7 +423,6 @@ def test_backends_restart(gcp, backend_service, instance_group):
     start_time = time.time()
     wait_until_all_rpcs_go_to_given_backends(instance_names,
                                              _WAIT_FOR_STATS_SEC)
-    stats = get_client_stats(_NUM_TEST_RPCS, _WAIT_FOR_STATS_SEC)
     try:
         resize_instance_group(gcp, instance_group, 0)
         wait_until_all_rpcs_go_to_given_backends_or_fail([],
@@ -417,15 +433,6 @@ def test_backends_restart(gcp, backend_service, instance_group):
     new_instance_names = get_instance_names(gcp, instance_group)
     wait_until_all_rpcs_go_to_given_backends(new_instance_names,
                                              _WAIT_FOR_BACKEND_SEC)
-    new_stats = get_client_stats(_NUM_TEST_RPCS, _WAIT_FOR_STATS_SEC)
-    original_distribution = list(stats.rpcs_by_peer.values())
-    original_distribution.sort()
-    new_distribution = list(new_stats.rpcs_by_peer.values())
-    new_distribution.sort()
-    threshold = 3
-    for i in range(len(original_distribution)):
-        if abs(original_distribution[i] - new_distribution[i]) > threshold:
-            raise Exception('Distributions do not match: ', stats, new_stats)
 
 
 def test_change_backend_service(gcp, original_backend_service, instance_group,
@@ -507,32 +514,6 @@ def test_gentle_failover(gcp,
                                                  _WAIT_FOR_BACKEND_SEC)
 
 
-def test_new_instance_group_receives_traffic(gcp, backend_service,
-                                             instance_group,
-                                             same_zone_instance_group):
-    logger.info('Running test_new_instance_group_receives_traffic')
-    instance_names = get_instance_names(gcp, instance_group)
-    # TODO(ericgribkoff) Reduce this timeout. When running sequentially, this
-    # occurs after patching the url map in test_change_backend_service, so we
-    # need the extended timeout here as well.
-    wait_until_all_rpcs_go_to_given_backends(instance_names,
-                                             _WAIT_FOR_URL_MAP_PATCH_SEC)
-    try:
-        patch_backend_instances(gcp,
-                                backend_service,
-                                [instance_group, same_zone_instance_group],
-                                balancing_mode='RATE')
-        wait_for_healthy_backends(gcp, backend_service, instance_group)
-        wait_for_healthy_backends(gcp, backend_service,
-                                  same_zone_instance_group)
-        combined_instance_names = instance_names + get_instance_names(
-            gcp, same_zone_instance_group)
-        wait_until_all_rpcs_go_to_given_backends(combined_instance_names,
-                                                 _WAIT_FOR_BACKEND_SEC)
-    finally:
-        patch_backend_instances(gcp, backend_service, [instance_group])
-
-
 def test_ping_pong(gcp, backend_service, instance_group):
     logger.info('Running test_ping_pong')
     wait_for_healthy_backends(gcp, backend_service, instance_group)
@@ -555,12 +536,30 @@ def test_remove_instance_group(gcp, backend_service, instance_group,
         instance_names = get_instance_names(gcp, instance_group)
         same_zone_instance_names = get_instance_names(gcp,
                                                       same_zone_instance_group)
-        wait_until_all_rpcs_go_to_given_backends(
-            instance_names + same_zone_instance_names, _WAIT_FOR_BACKEND_SEC)
+        try:
+            wait_until_all_rpcs_go_to_given_backends(
+                instance_names + same_zone_instance_names,
+                _WAIT_FOR_OPERATION_SEC)
+            remaining_instance_group = same_zone_instance_group
+            remaining_instance_names = same_zone_instance_names
+        except RpcDistributionError as e:
+            # If connected to TD in a different zone, we may route traffic to
+            # only one instance group. Determine which group that is to continue
+            # with the remainder of the test case.
+            try:
+                wait_until_all_rpcs_go_to_given_backends(
+                    instance_names, _WAIT_FOR_STATS_SEC)
+                remaining_instance_group = same_zone_instance_group
+                remaining_instance_names = same_zone_instance_names
+            except RpcDistributionError as e:
+                wait_until_all_rpcs_go_to_given_backends(
+                    same_zone_instance_names, _WAIT_FOR_STATS_SEC)
+                remaining_instance_group = instance_group
+                remaining_instance_names = instance_names
         patch_backend_instances(gcp,
-                                backend_service, [same_zone_instance_group],
+                                backend_service, [remaining_instance_group],
                                 balancing_mode='RATE')
-        wait_until_all_rpcs_go_to_given_backends(same_zone_instance_names,
+        wait_until_all_rpcs_go_to_given_backends(remaining_instance_names,
                                                  _WAIT_FOR_BACKEND_SEC)
     finally:
         patch_backend_instances(gcp, backend_service, [instance_group])
@@ -575,17 +574,29 @@ def test_round_robin(gcp, backend_service, instance_group):
     threshold = 1
     wait_until_all_rpcs_go_to_given_backends(instance_names,
                                              _WAIT_FOR_STATS_SEC)
-    stats = get_client_stats(_NUM_TEST_RPCS, _WAIT_FOR_STATS_SEC)
-    requests_received = [stats.rpcs_by_peer[x] for x in stats.rpcs_by_peer]
-    total_requests_received = sum(requests_received)
-    if total_requests_received != _NUM_TEST_RPCS:
-        raise Exception('Unexpected RPC failures', stats)
-    expected_requests = total_requests_received / len(instance_names)
-    for instance in instance_names:
-        if abs(stats.rpcs_by_peer[instance] - expected_requests) > threshold:
-            raise Exception(
-                'RPC peer distribution differs from expected by more than %d '
-                'for instance %s (%s)' % (threshold, instance, stats))
+    # TODO(ericgribkoff) Delayed config propagation from earlier tests
+    # may result in briefly receiving an empty EDS update, resulting in failed
+    # RPCs. Retry distribution validation if this occurs; long-term fix is
+    # creating new backend resources for each individual test case.
+    # Each attempt takes 10 seconds. Config propagation can take several
+    # minutes.
+    max_attempts = 40
+    for i in range(max_attempts):
+        stats = get_client_stats(_NUM_TEST_RPCS, _WAIT_FOR_STATS_SEC)
+        requests_received = [stats.rpcs_by_peer[x] for x in stats.rpcs_by_peer]
+        total_requests_received = sum(requests_received)
+        if total_requests_received != _NUM_TEST_RPCS:
+            logger.info('Unexpected RPC failures, retrying: %s', stats)
+            continue
+        expected_requests = total_requests_received / len(instance_names)
+        for instance in instance_names:
+            if abs(stats.rpcs_by_peer[instance] -
+                   expected_requests) > threshold:
+                raise Exception(
+                    'RPC peer distribution differs from expected by more than %d '
+                    'for instance %s (%s)' % (threshold, instance, stats))
+        return
+    raise Exception('RPC failures persisted through %d retries' % max_attempts)
 
 
 def test_secondary_locality_gets_no_requests_on_partial_primary_failure(
@@ -690,13 +701,6 @@ def prepare_services_for_urlmap_tests(gcp, original_backend_service,
     Returns:
       Returns original and alternate backend names as lists of strings.
     '''
-    # The config validation for proxyless doesn't allow setting
-    # default_route_action or route_rules. Disable validate
-    # validate_for_proxyless for this test. This can be removed when validation
-    # accepts default_route_action.
-    logger.info('disabling validate_for_proxyless in target proxy')
-    set_validate_for_proxyless(gcp, False)
-
     logger.info('waiting for original backends to become healthy')
     wait_for_healthy_backends(gcp, original_backend_service, instance_group)
 
@@ -791,7 +795,6 @@ def test_traffic_splitting(gcp, original_backend_service, instance_group,
     finally:
         patch_url_map_backend_service(gcp, original_backend_service)
         patch_backend_instances(gcp, alternate_backend_service, [])
-        set_validate_for_proxyless(gcp, True)
 
 
 def test_path_matching(gcp, original_backend_service, instance_group,
@@ -899,7 +902,6 @@ def test_path_matching(gcp, original_backend_service, instance_group,
     finally:
         patch_url_map_backend_service(gcp, original_backend_service)
         patch_backend_instances(gcp, alternate_backend_service, [])
-        set_validate_for_proxyless(gcp, True)
 
 
 def test_header_matching(gcp, original_backend_service, instance_group,
@@ -970,18 +972,36 @@ def test_header_matching(gcp, original_backend_service, instance_group,
     finally:
         patch_url_map_backend_service(gcp, original_backend_service)
         patch_backend_instances(gcp, alternate_backend_service, [])
-        set_validate_for_proxyless(gcp, True)
+
+
+def get_serving_status(instance, service_port):
+    with grpc.insecure_channel('%s:%d' % (instance, service_port)) as channel:
+        health_stub = health_pb2_grpc.HealthStub(channel)
+        return health_stub.Check(health_pb2.HealthCheckRequest())
 
 
 def set_serving_status(instances, service_port, serving):
+    logger.info('setting %s serving status to %s', instances, serving)
     for instance in instances:
         with grpc.insecure_channel('%s:%d' %
                                    (instance, service_port)) as channel:
+            logger.info('setting %s serving status to %s', instance, serving)
             stub = test_pb2_grpc.XdsUpdateHealthServiceStub(channel)
-            if serving:
-                stub.SetServing(empty_pb2.Empty())
-            else:
-                stub.SetNotServing(empty_pb2.Empty())
+            retry_count = 5
+            for i in range(5):
+                if serving:
+                    stub.SetServing(empty_pb2.Empty())
+                else:
+                    stub.SetNotServing(empty_pb2.Empty())
+                serving_status = get_serving_status(instance, service_port)
+                logger.info('got instance service status %s', serving_status)
+                want_status = health_pb2.HealthCheckResponse.SERVING if serving else health_pb2.HealthCheckResponse.NOT_SERVING
+                if serving_status.status == want_status:
+                    break
+                if i == retry_count - 1:
+                    raise Exception(
+                        'failed to set instance service status after %d retries'
+                        % retry_count)
 
 
 def is_primary_instance_group(gcp, instance_group):
@@ -1182,27 +1202,12 @@ def patch_url_map_host_rule_with_port(gcp, name, backend_service, host_name):
     wait_for_global_operation(gcp, result['name'])
 
 
-def set_validate_for_proxyless(gcp, validate_for_proxyless):
-    if not gcp.alpha_compute:
-        logger.debug(
-            'Not setting validateForProxy because alpha is not enabled')
-        return
-    # This function deletes global_forwarding_rule and target_proxy, then
-    # recreate target_proxy with validateForProxyless=False. This is necessary
-    # because patching target_grpc_proxy isn't supported.
-    delete_global_forwarding_rule(gcp)
-    delete_target_proxy(gcp)
-    create_target_proxy(gcp, gcp.target_proxy.name, validate_for_proxyless)
-    create_global_forwarding_rule(gcp, gcp.global_forwarding_rule.name,
-                                  [gcp.service_port])
-
-
-def create_target_proxy(gcp, name, validate_for_proxyless=True):
+def create_target_proxy(gcp, name):
     if gcp.alpha_compute:
         config = {
             'name': name,
             'url_map': gcp.url_map.url,
-            'validate_for_proxyless': validate_for_proxyless,
+            'validate_for_proxyless': True,
         }
         logger.debug('Sending GCP request with body=%s', config)
         result = gcp.alpha_compute.targetGrpcProxies().insert(
@@ -1541,14 +1546,23 @@ def wait_for_healthy_backends(gcp,
                               timeout_sec=_WAIT_FOR_BACKEND_SEC):
     start_time = time.time()
     config = {'group': instance_group.url}
-    expected_size = len(get_instance_names(gcp, instance_group))
+    instance_names = get_instance_names(gcp, instance_group)
+    expected_size = len(instance_names)
     while time.time() - start_time <= timeout_sec:
+        for instance_name in instance_names:
+            try:
+                status = get_serving_status(instance_name, gcp.service_port)
+                logger.info('serving status response from %s: %s',
+                            instance_name, status)
+            except grpc.RpcError as rpc_error:
+                logger.info('checking serving status of %s failed: %s',
+                            instance_name, rpc_error)
         result = gcp.compute.backendServices().getHealth(
             project=gcp.project,
             backendService=backend_service.name,
             body=config).execute(num_retries=_GCP_API_RETRIES)
         if 'healthStatus' in result:
-            logger.info('received healthStatus: %s', result['healthStatus'])
+            logger.info('received GCP healthStatus: %s', result['healthStatus'])
             healthy = True
             for instance in result['healthStatus']:
                 if instance['healthState'] != 'HEALTHY':
@@ -1556,7 +1570,9 @@ def wait_for_healthy_backends(gcp,
                     break
             if healthy and expected_size == len(result['healthStatus']):
                 return
-        time.sleep(2)
+        else:
+            logger.info('no healthStatus received from GCP')
+        time.sleep(5)
     raise Exception('Not all backends became healthy within %d seconds: %s' %
                     (timeout_sec, result))
 
@@ -1648,18 +1664,37 @@ else:
 
 try:
     gcp = GcpState(compute, alpha_compute, args.project_id)
-    health_check_name = _BASE_HEALTH_CHECK_NAME + args.gcp_suffix
-    firewall_name = _BASE_FIREWALL_RULE_NAME + args.gcp_suffix
-    backend_service_name = _BASE_BACKEND_SERVICE_NAME + args.gcp_suffix
-    alternate_backend_service_name = _BASE_BACKEND_SERVICE_NAME + '-alternate' + args.gcp_suffix
-    url_map_name = _BASE_URL_MAP_NAME + args.gcp_suffix
-    service_host_name = _BASE_SERVICE_HOST + args.gcp_suffix
-    target_proxy_name = _BASE_TARGET_PROXY_NAME + args.gcp_suffix
-    forwarding_rule_name = _BASE_FORWARDING_RULE_NAME + args.gcp_suffix
-    template_name = _BASE_TEMPLATE_NAME + args.gcp_suffix
-    instance_group_name = _BASE_INSTANCE_GROUP_NAME + args.gcp_suffix
-    same_zone_instance_group_name = _BASE_INSTANCE_GROUP_NAME + '-same-zone' + args.gcp_suffix
-    secondary_zone_instance_group_name = _BASE_INSTANCE_GROUP_NAME + '-secondary-zone' + args.gcp_suffix
+    gcp_suffix = args.gcp_suffix
+    health_check_name = _BASE_HEALTH_CHECK_NAME + gcp_suffix
+    if not args.use_existing_gcp_resources:
+        if gcp_suffix:
+            num_attempts = 5
+        else:
+            # If not given a suffix, do not retry if already in use.
+            num_attempts = 1
+        for i in range(num_attempts):
+            try:
+                logger.info('Using GCP suffix %s', gcp_suffix)
+                create_health_check(gcp, health_check_name)
+                break
+            except googleapiclient.errors.HttpError as http_error:
+                gcp_suffix = '%s-%04d' % (gcp_suffix, random.randint(0, 9999))
+                health_check_name = _BASE_HEALTH_CHECK_NAME + gcp_suffix
+                logger.exception('HttpError when creating health check')
+        if gcp.health_check is None:
+            raise Exception('Failed to create health check name after %d '
+                            'attempts' % num_attempts)
+    firewall_name = _BASE_FIREWALL_RULE_NAME + gcp_suffix
+    backend_service_name = _BASE_BACKEND_SERVICE_NAME + gcp_suffix
+    alternate_backend_service_name = _BASE_BACKEND_SERVICE_NAME + '-alternate' + gcp_suffix
+    url_map_name = _BASE_URL_MAP_NAME + gcp_suffix
+    service_host_name = _BASE_SERVICE_HOST + gcp_suffix
+    target_proxy_name = _BASE_TARGET_PROXY_NAME + gcp_suffix
+    forwarding_rule_name = _BASE_FORWARDING_RULE_NAME + gcp_suffix
+    template_name = _BASE_TEMPLATE_NAME + gcp_suffix
+    instance_group_name = _BASE_INSTANCE_GROUP_NAME + gcp_suffix
+    same_zone_instance_group_name = _BASE_INSTANCE_GROUP_NAME + '-same-zone' + gcp_suffix
+    secondary_zone_instance_group_name = _BASE_INSTANCE_GROUP_NAME + '-secondary-zone' + gcp_suffix
     if args.use_existing_gcp_resources:
         logger.info('Reusing existing GCP resources')
         get_health_check(gcp, health_check_name)
@@ -1683,7 +1718,6 @@ try:
         secondary_zone_instance_group = get_instance_group(
             gcp, args.secondary_zone, secondary_zone_instance_group_name)
     else:
-        create_health_check(gcp, health_check_name)
         create_health_check_firewall_rule(gcp, firewall_name)
         backend_service = add_backend_service(gcp, backend_service_name)
         alternate_backend_service = add_backend_service(
@@ -1765,40 +1799,36 @@ try:
                 # metadata arg is not specified.
                 metadata_to_send = ''
 
-            if test_case in _TESTS_TO_FAIL_ON_RPC_FAILURE:
-                # TODO(ericgribkoff) Unconditional wait is recommended by TD
-                # team when reusing backend resources after config changes
-                # between test cases, as we are doing here. This should address
-                # flakiness issues with these tests; other attempts to deflake
-                # (such as waiting for the first successful RPC before failing
-                # on any subsequent failures) were insufficient because, due to
-                # propagation delays, we may initially see an RPC succeed to the
-                # expected backends but due to a stale configuration: e.g., test
-                # A (1) routes traffic to MIG A, then (2) switches to MIG B,
-                # then (3) back to MIG A. Test B begins running and sees RPCs
-                # going to MIG A, as expected. However, due to propagation
-                # delays, Test B is actually seeing the stale config from step
-                # (1), and then fails when it gets update (2) unexpectedly
-                # switching to MIG B.
-                time.sleep(200)
-                fail_on_failed_rpc = '--fail_on_failed_rpc=true'
-            else:
-                fail_on_failed_rpc = '--fail_on_failed_rpc=false'
+            # TODO(ericgribkoff) Temporarily disable fail_on_failed_rpc checks
+            # in the client. This means we will ignore intermittent RPC
+            # failures (but this framework still checks that the final result
+            # is as expected).
+            #
+            # Reason for disabling this is, the resources are shared by
+            # multiple tests, and a change in previous test could be delayed
+            # until the second test starts. The second test may see
+            # intermittent failures because of that.
+            #
+            # A fix is to not share resources between tests (though that does
+            # mean the tests will be significantly slower due to creating new
+            # resources).
+            fail_on_failed_rpc = ''
 
-            client_cmd_formatted = args.client_cmd.format(
-                server_uri=server_uri,
-                stats_port=args.stats_port,
-                qps=args.qps,
-                fail_on_failed_rpc=fail_on_failed_rpc,
-                rpcs_to_send=rpcs_to_send,
-                metadata_to_send=metadata_to_send)
-            logger.debug('running client: %s', client_cmd_formatted)
-            client_cmd = shlex.split(client_cmd_formatted)
             try:
-                client_process = subprocess.Popen(client_cmd,
-                                                  env=client_env,
-                                                  stderr=subprocess.STDOUT,
-                                                  stdout=test_log_file)
+                if not CLIENT_HOSTS:
+                    client_cmd_formatted = args.client_cmd.format(
+                        server_uri=server_uri,
+                        stats_port=args.stats_port,
+                        qps=args.qps,
+                        fail_on_failed_rpc=fail_on_failed_rpc,
+                        rpcs_to_send=rpcs_to_send,
+                        metadata_to_send=metadata_to_send)
+                    logger.debug('running client: %s', client_cmd_formatted)
+                    client_cmd = shlex.split(client_cmd_formatted)
+                    client_process = subprocess.Popen(client_cmd,
+                                                      env=client_env,
+                                                      stderr=subprocess.STDOUT,
+                                                      stdout=test_log_file)
                 if test_case == 'backends_restart':
                     test_backends_restart(gcp, backend_service, instance_group)
                 elif test_case == 'change_backend_service':
@@ -1809,10 +1839,6 @@ try:
                 elif test_case == 'gentle_failover':
                     test_gentle_failover(gcp, backend_service, instance_group,
                                          secondary_zone_instance_group)
-                elif test_case == 'new_instance_group_receives_traffic':
-                    test_new_instance_group_receives_traffic(
-                        gcp, backend_service, instance_group,
-                        same_zone_instance_group)
                 elif test_case == 'ping_pong':
                     test_ping_pong(gcp, backend_service, instance_group)
                 elif test_case == 'remove_instance_group':
@@ -1844,7 +1870,7 @@ try:
                 else:
                     logger.error('Unknown test case: %s', test_case)
                     sys.exit(1)
-                if client_process.poll() is not None:
+                if client_process and client_process.poll() is not None:
                     raise Exception(
                         'Client process exited prematurely with exit code %d' %
                         client_process.returncode)
@@ -1856,8 +1882,12 @@ try:
                 result.state = 'FAILED'
                 result.message = str(e)
             finally:
-                if client_process and not client_process.returncode:
-                    client_process.terminate()
+                if client_process:
+                    if client_process.returncode:
+                        logger.info('Client exited with code %d' %
+                                    client_process.returncode)
+                    else:
+                        client_process.terminate()
                 test_log_file.close()
                 # Workaround for Python 3, as report_utils will invoke decode() on
                 # result.message, which has a default value of ''.

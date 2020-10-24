@@ -29,7 +29,7 @@
 #include <grpcpp/impl/codegen/call.h>
 #include <grpcpp/impl/codegen/call_hook.h>
 #include <grpcpp/impl/codegen/call_op_set_interface.h>
-#include <grpcpp/impl/codegen/client_context_impl.h>
+#include <grpcpp/impl/codegen/client_context.h>
 #include <grpcpp/impl/codegen/completion_queue.h>
 #include <grpcpp/impl/codegen/completion_queue_tag.h>
 #include <grpcpp/impl/codegen/config.h>
@@ -79,11 +79,6 @@ inline grpc_metadata* FillMetadataArray(
 class WriteOptions {
  public:
   WriteOptions() : flags_(0), last_message_(false) {}
-  WriteOptions(const WriteOptions& other)
-      : flags_(other.flags_), last_message_(other.last_message_) {}
-
-  /// Default assignment operator
-  WriteOptions& operator=(const WriteOptions& other) = default;
 
   /// Clear all flags.
   inline void Clear() { flags_ = 0; }
@@ -330,6 +325,7 @@ class CallOpSendMessage {
   }
   void FinishOp(bool* status) {
     if (msg_ == nullptr && !send_buf_.Valid()) return;
+    send_buf_.Clear();
     if (hijacked_ && failed_send_) {
       // Hijacking interceptor failed this Op
       *status = false;
@@ -378,27 +374,18 @@ class CallOpSendMessage {
 template <class M>
 Status CallOpSendMessage::SendMessage(const M& message, WriteOptions options) {
   write_options_ = options;
-  serializer_ = [this](const void* message) {
-    bool own_buf;
-    send_buf_.Clear();
-    // TODO(vjpai): Remove the void below when possible
-    // The void in the template parameter below should not be needed
-    // (since it should be implicit) but is needed due to an observed
-    // difference in behavior between clang and gcc for certain internal users
-    Status result = SerializationTraits<M, void>::Serialize(
-        *static_cast<const M*>(message), send_buf_.bbuf_ptr(), &own_buf);
-    if (!own_buf) {
-      send_buf_.Duplicate();
-    }
-    return result;
-  };
-  // Serialize immediately only if we do not have access to the message pointer
-  if (msg_ == nullptr) {
-    Status result = serializer_(&message);
-    serializer_ = nullptr;
-    return result;
+  // Serialize immediately since we do not have access to the message pointer
+  bool own_buf;
+  // TODO(vjpai): Remove the void below when possible
+  // The void in the template parameter below should not be needed
+  // (since it should be implicit) but is needed due to an observed
+  // difference in behavior between clang and gcc for certain internal users
+  Status result = SerializationTraits<M, void>::Serialize(
+      message, send_buf_.bbuf_ptr(), &own_buf);
+  if (!own_buf) {
+    send_buf_.Duplicate();
   }
-  return Status();
+  return result;
 }
 
 template <class M>
@@ -410,13 +397,27 @@ template <class M>
 Status CallOpSendMessage::SendMessagePtr(const M* message,
                                          WriteOptions options) {
   msg_ = message;
-  return SendMessage(*message, options);
+  write_options_ = options;
+  // Store the serializer for later since we have access to the message
+  serializer_ = [this](const void* message) {
+    bool own_buf;
+    // TODO(vjpai): Remove the void below when possible
+    // The void in the template parameter below should not be needed
+    // (since it should be implicit) but is needed due to an observed
+    // difference in behavior between clang and gcc for certain internal users
+    Status result = SerializationTraits<M, void>::Serialize(
+        *static_cast<const M*>(message), send_buf_.bbuf_ptr(), &own_buf);
+    if (!own_buf) {
+      send_buf_.Duplicate();
+    }
+    return result;
+  };
+  return Status();
 }
 
 template <class M>
 Status CallOpSendMessage::SendMessagePtr(const M* message) {
-  msg_ = message;
-  return SendMessage(*message, WriteOptions());
+  return SendMessagePtr(message, WriteOptions());
 }
 
 template <class R>
@@ -721,7 +722,7 @@ class CallOpRecvInitialMetadata {
  public:
   CallOpRecvInitialMetadata() : metadata_map_(nullptr) {}
 
-  void RecvInitialMetadata(::grpc_impl::ClientContext* context) {
+  void RecvInitialMetadata(::grpc::ClientContext* context) {
     context->initial_metadata_received_ = true;
     metadata_map_ = &context->recv_initial_metadata_;
   }
@@ -770,7 +771,7 @@ class CallOpClientRecvStatus {
   CallOpClientRecvStatus()
       : recv_status_(nullptr), debug_error_string_(nullptr) {}
 
-  void ClientRecvStatus(::grpc_impl::ClientContext* context, Status* status) {
+  void ClientRecvStatus(::grpc::ClientContext* context, Status* status) {
     client_context_ = context;
     metadata_map_ = &client_context_->trailing_metadata_;
     recv_status_ = status;
@@ -836,7 +837,7 @@ class CallOpClientRecvStatus {
 
  private:
   bool hijacked_ = false;
-  ::grpc_impl::ClientContext* client_context_;
+  ::grpc::ClientContext* client_context_;
   MetadataMap* metadata_map_;
   Status* recv_status_;
   const char* debug_error_string_;

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])  # Apache v2
+licenses(["notice"])
 
 load("//bazel:grpc_build_system.bzl", "grpc_cc_binary", "grpc_cc_library", "grpc_cc_test", "grpc_package")
 
@@ -139,7 +139,7 @@ grpc_cc_binary(
     testonly = True,
     srcs = ["client_crash_test_server.cc"],
     external_deps = [
-        "gflags",
+        "absl/flags:flag",
         "gtest",
     ],
     deps = [
@@ -544,7 +544,6 @@ grpc_cc_test(
     srcs = ["proto_server_reflection_test.cc"],
     external_deps = [
         "gtest",
-        "gflags",
     ],
     deps = [
         ":test_service_impl",
@@ -611,7 +610,7 @@ grpc_cc_binary(
     testonly = True,
     srcs = ["server_crash_test_client.cc"],
     external_deps = [
-        "gflags",
+        "absl/flags:flag",
         "gtest",
     ],
     deps = [
@@ -670,7 +669,11 @@ grpc_cc_test(
         "gtest",
     ],
     tags = [
+        # Test manipulates network settings (e.g. using iptables) while running so it is only
+        # run on demand ("manual") and when no other tests are running ("exclusive").
+        # It also means that the test won't work with setups like bazel RBE.
         "manual",
+        "exclusive",
         "no_test_ios",
     ],
     deps = [
@@ -750,10 +753,14 @@ grpc_cc_test(
         "gtest",
     ],
     tags = [
+        # Test requires root and manipulates network settings while running so it is only
+        # run on demand ("manual") and when no other tests are running ("exclusive").
+        # It also means that the test won't work with setups like bazel RBE.
         "manual",
+        "exclusive",
         "no_test_android",
         "no_test_ios",
-    ],  # test requires root, won't work with bazel RBE
+    ],
     deps = [
         ":test_service_impl",
         "//:gpr",
@@ -789,6 +796,24 @@ grpc_cc_test(
 grpc_cc_test(
     name = "port_sharing_end2end_test",
     srcs = ["port_sharing_end2end_test.cc"],
+    external_deps = [
+        "gtest",
+    ],
+    deps = [
+        ":test_service_impl",
+        "//:gpr",
+        "//:grpc",
+        "//:grpc++",
+        "//src/proto/grpc/testing:echo_messages_proto",
+        "//src/proto/grpc/testing:echo_proto",
+        "//test/core/util:grpc_test_util",
+        "//test/cpp/util:test_util",
+    ],
+)
+
+grpc_cc_test(
+    name = "xds_credentials_end2end_test",
+    srcs = ["xds_credentials_end2end_test.cc"],
     external_deps = [
         "gtest",
     ],

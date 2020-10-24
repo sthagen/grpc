@@ -15,13 +15,13 @@
  *
  */
 
-#include <grpcpp/impl/codegen/client_callback_impl.h>
+#include <grpcpp/impl/codegen/client_callback.h>
 
 #include "src/core/lib/iomgr/closure.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
 #include "src/core/lib/iomgr/executor.h"
 
-namespace grpc_impl {
+namespace grpc {
 namespace internal {
 
 void ClientReactor::InternalScheduleOnDone(grpc::Status s) {
@@ -34,14 +34,14 @@ void ClientReactor::InternalScheduleOnDone(grpc::Status s) {
     const grpc::Status status;
     ClosureWithArg(ClientReactor* reactor_arg, grpc::Status s)
         : reactor(reactor_arg), status(std::move(s)) {
-      GRPC_CLOSURE_INIT(&closure,
-                        [](void* void_arg, grpc_error*) {
-                          ClosureWithArg* arg =
-                              static_cast<ClosureWithArg*>(void_arg);
-                          arg->reactor->OnDone(arg->status);
-                          delete arg;
-                        },
-                        this, grpc_schedule_on_exec_ctx);
+      GRPC_CLOSURE_INIT(
+          &closure,
+          [](void* void_arg, grpc_error*) {
+            ClosureWithArg* arg = static_cast<ClosureWithArg*>(void_arg);
+            arg->reactor->OnDone(arg->status);
+            delete arg;
+          },
+          this, grpc_schedule_on_exec_ctx);
     }
   };
   ClosureWithArg* arg = new ClosureWithArg(this, std::move(s));
@@ -49,4 +49,4 @@ void ClientReactor::InternalScheduleOnDone(grpc::Status s) {
 }
 
 }  // namespace internal
-}  // namespace grpc_impl
+}  // namespace grpc

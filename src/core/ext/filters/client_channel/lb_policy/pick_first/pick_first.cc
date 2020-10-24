@@ -55,7 +55,7 @@ class PickFirst : public LoadBalancingPolicy {
   void ResetBackoffLocked() override;
 
  private:
-  ~PickFirst();
+  ~PickFirst() override;
 
   class PickFirstSubchannelList;
 
@@ -84,9 +84,9 @@ class PickFirst : public LoadBalancingPolicy {
                               PickFirstSubchannelData> {
    public:
     PickFirstSubchannelList(PickFirst* policy, TraceFlag* tracer,
-                            const ServerAddressList& addresses,
+                            ServerAddressList addresses,
                             const grpc_channel_args& args)
-        : SubchannelList(policy, tracer, addresses,
+        : SubchannelList(policy, tracer, std::move(addresses),
                          policy->channel_control_helper(), args) {
       // Need to maintain a ref to the LB policy as long as we maintain
       // any references to subchannels, since the subchannels'
@@ -94,7 +94,7 @@ class PickFirst : public LoadBalancingPolicy {
       policy->Ref(DEBUG_LOCATION, "subchannel_list").release();
     }
 
-    ~PickFirstSubchannelList() {
+    ~PickFirstSubchannelList() override {
       PickFirst* p = static_cast<PickFirst*>(policy());
       p->Unref(DEBUG_LOCATION, "subchannel_list");
     }

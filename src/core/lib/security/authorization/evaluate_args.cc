@@ -20,7 +20,7 @@
 
 #include "src/core/lib/security/authorization/evaluate_args.h"
 
-#include "src/core/ext/filters/client_channel/parse_address.h"
+#include "src/core/lib/iomgr/parse_address.h"
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/sockaddr_utils.h"
 #include "src/core/lib/slice/slice_utils.h"
@@ -131,10 +131,7 @@ absl::string_view EvaluateArgs::GetSpiffeId() const {
   grpc_auth_property_iterator it = grpc_auth_context_find_properties_by_name(
       auth_context_, GRPC_PEER_SPIFFE_ID_PROPERTY_NAME);
   const grpc_auth_property* prop = grpc_auth_property_iterator_next(&it);
-  if (prop == nullptr ||
-      strncmp(prop->value, GRPC_PEER_SPIFFE_ID_PROPERTY_NAME,
-              prop->value_length) != 0 ||
-      grpc_auth_property_iterator_next(&it) != nullptr) {
+  if (prop == nullptr || grpc_auth_property_iterator_next(&it) != nullptr) {
     return "";
   }
   return absl::string_view(prop->value, prop->value_length);
@@ -147,10 +144,7 @@ absl::string_view EvaluateArgs::GetCertServerName() const {
   grpc_auth_property_iterator it = grpc_auth_context_find_properties_by_name(
       auth_context_, GRPC_X509_CN_PROPERTY_NAME);
   const grpc_auth_property* prop = grpc_auth_property_iterator_next(&it);
-  if (prop == nullptr ||
-      strncmp(prop->value, GRPC_X509_CN_PROPERTY_NAME, prop->value_length) !=
-          0 ||
-      grpc_auth_property_iterator_next(&it) != nullptr) {
+  if (prop == nullptr || grpc_auth_property_iterator_next(&it) != nullptr) {
     return "";
   }
   return absl::string_view(prop->value, prop->value_length);
