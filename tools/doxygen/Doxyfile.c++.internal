@@ -40,7 +40,7 @@ PROJECT_NAME           = "GRPC C++"
 # could be handy for archiving the generated documentation or if some version
 # control system is used.
 
-PROJECT_NUMBER         = 1.34.0-dev
+PROJECT_NUMBER         = 1.35.0-dev
 
 # Using the PROJECT_BRIEF tag one can provide an optional one line description
 # for a project that appears at the top of each page and should give viewer a
@@ -1010,6 +1010,7 @@ include/grpcpp/security/auth_context.h \
 include/grpcpp/security/auth_metadata_processor.h \
 include/grpcpp/security/credentials.h \
 include/grpcpp/security/server_credentials.h \
+include/grpcpp/security/tls_certificate_provider.h \
 include/grpcpp/security/tls_credentials_options.h \
 include/grpcpp/server.h \
 include/grpcpp/server_builder.h \
@@ -1037,6 +1038,7 @@ include/grpcpp/support/stub_options.h \
 include/grpcpp/support/sync_stream.h \
 include/grpcpp/support/time.h \
 include/grpcpp/support/validate_service_config.h \
+include/grpcpp/xds_server_builder.h \
 src/core/ext/filters/census/grpc_context.cc \
 src/core/ext/filters/client_channel/backend_metric.cc \
 src/core/ext/filters/client_channel/backend_metric.h \
@@ -1053,6 +1055,8 @@ src/core/ext/filters/client_channel/client_channel_plugin.cc \
 src/core/ext/filters/client_channel/config_selector.cc \
 src/core/ext/filters/client_channel/config_selector.h \
 src/core/ext/filters/client_channel/connector.h \
+src/core/ext/filters/client_channel/dynamic_filters.cc \
+src/core/ext/filters/client_channel/dynamic_filters.h \
 src/core/ext/filters/client_channel/global_subchannel_pool.cc \
 src/core/ext/filters/client_channel/global_subchannel_pool.h \
 src/core/ext/filters/client_channel/health/health_check_client.cc \
@@ -1085,10 +1089,11 @@ src/core/ext/filters/client_channel/lb_policy/round_robin/round_robin.cc \
 src/core/ext/filters/client_channel/lb_policy/subchannel_list.h \
 src/core/ext/filters/client_channel/lb_policy/weighted_target/weighted_target.cc \
 src/core/ext/filters/client_channel/lb_policy/xds/cds.cc \
-src/core/ext/filters/client_channel/lb_policy/xds/eds.cc \
 src/core/ext/filters/client_channel/lb_policy/xds/xds.h \
+src/core/ext/filters/client_channel/lb_policy/xds/xds_channel_args.h \
 src/core/ext/filters/client_channel/lb_policy/xds/xds_cluster_impl.cc \
 src/core/ext/filters/client_channel/lb_policy/xds/xds_cluster_manager.cc \
+src/core/ext/filters/client_channel/lb_policy/xds/xds_cluster_resolver.cc \
 src/core/ext/filters/client_channel/lb_policy_factory.h \
 src/core/ext/filters/client_channel/lb_policy_registry.cc \
 src/core/ext/filters/client_channel/lb_policy_registry.h \
@@ -1107,7 +1112,6 @@ src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_ev_driver_posi
 src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_ev_driver_windows.cc \
 src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper.cc \
 src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper.h \
-src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper_fallback.cc \
 src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper_libuv.cc \
 src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper_posix.cc \
 src/core/ext/filters/client_channel/resolver/dns/c_ares/grpc_ares_wrapper_windows.cc \
@@ -1124,8 +1128,6 @@ src/core/ext/filters/client_channel/resolver_registry.cc \
 src/core/ext/filters/client_channel/resolver_registry.h \
 src/core/ext/filters/client_channel/resolver_result_parsing.cc \
 src/core/ext/filters/client_channel/resolver_result_parsing.h \
-src/core/ext/filters/client_channel/resolving_lb_policy.cc \
-src/core/ext/filters/client_channel/resolving_lb_policy.h \
 src/core/ext/filters/client_channel/retry_throttle.cc \
 src/core/ext/filters/client_channel/retry_throttle.h \
 src/core/ext/filters/client_channel/server_address.cc \
@@ -1557,17 +1559,20 @@ src/core/ext/xds/certificate_provider_registry.cc \
 src/core/ext/xds/certificate_provider_registry.h \
 src/core/ext/xds/certificate_provider_store.cc \
 src/core/ext/xds/certificate_provider_store.h \
-src/core/ext/xds/google_mesh_ca_certificate_provider_factory.cc \
-src/core/ext/xds/google_mesh_ca_certificate_provider_factory.h \
+src/core/ext/xds/file_watcher_certificate_provider_factory.cc \
+src/core/ext/xds/file_watcher_certificate_provider_factory.h \
 src/core/ext/xds/xds_api.cc \
 src/core/ext/xds/xds_api.h \
 src/core/ext/xds/xds_bootstrap.cc \
 src/core/ext/xds/xds_bootstrap.h \
+src/core/ext/xds/xds_certificate_provider.cc \
+src/core/ext/xds/xds_certificate_provider.h \
 src/core/ext/xds/xds_channel_args.h \
 src/core/ext/xds/xds_client.cc \
 src/core/ext/xds/xds_client.h \
 src/core/ext/xds/xds_client_stats.cc \
 src/core/ext/xds/xds_client_stats.h \
+src/core/ext/xds/xds_server_config_fetcher.cc \
 src/core/lib/avl/avl.cc \
 src/core/lib/avl/avl.h \
 src/core/lib/backoff/backoff.cc \
@@ -1666,6 +1671,8 @@ src/core/lib/gprpp/arena.h \
 src/core/lib/gprpp/atomic.h \
 src/core/lib/gprpp/debug_location.h \
 src/core/lib/gprpp/dual_ref_counted.h \
+src/core/lib/gprpp/examine_stack.cc \
+src/core/lib/gprpp/examine_stack.h \
 src/core/lib/gprpp/fork.cc \
 src/core/lib/gprpp/fork.h \
 src/core/lib/gprpp/global_config.h \
@@ -1683,6 +1690,9 @@ src/core/lib/gprpp/mpscq.h \
 src/core/lib/gprpp/orphanable.h \
 src/core/lib/gprpp/ref_counted.h \
 src/core/lib/gprpp/ref_counted_ptr.h \
+src/core/lib/gprpp/stat.h \
+src/core/lib/gprpp/stat_posix.cc \
+src/core/lib/gprpp/stat_windows.cc \
 src/core/lib/gprpp/sync.h \
 src/core/lib/gprpp/thd.h \
 src/core/lib/gprpp/thd_posix.cc \
@@ -1881,8 +1891,11 @@ src/core/lib/security/authorization/authorization_engine.h \
 src/core/lib/security/authorization/evaluate_args.cc \
 src/core/lib/security/authorization/evaluate_args.h \
 src/core/lib/security/authorization/mock_cel/activation.h \
+src/core/lib/security/authorization/mock_cel/cel_expr_builder_factory.h \
+src/core/lib/security/authorization/mock_cel/cel_expression.h \
 src/core/lib/security/authorization/mock_cel/cel_value.h \
-src/core/lib/security/certificate_provider.h \
+src/core/lib/security/authorization/mock_cel/evaluator_core.h \
+src/core/lib/security/authorization/mock_cel/flat_expr_builder.h \
 src/core/lib/security/context/security_context.cc \
 src/core/lib/security/context/security_context.h \
 src/core/lib/security/credentials/alts/alts_credentials.cc \
@@ -1901,8 +1914,14 @@ src/core/lib/security/credentials/composite/composite_credentials.h \
 src/core/lib/security/credentials/credentials.cc \
 src/core/lib/security/credentials/credentials.h \
 src/core/lib/security/credentials/credentials_metadata.cc \
+src/core/lib/security/credentials/external/aws_external_account_credentials.cc \
+src/core/lib/security/credentials/external/aws_external_account_credentials.h \
+src/core/lib/security/credentials/external/aws_request_signer.cc \
+src/core/lib/security/credentials/external/aws_request_signer.h \
 src/core/lib/security/credentials/external/external_account_credentials.cc \
 src/core/lib/security/credentials/external/external_account_credentials.h \
+src/core/lib/security/credentials/external/file_external_account_credentials.cc \
+src/core/lib/security/credentials/external/file_external_account_credentials.h \
 src/core/lib/security/credentials/external/url_external_account_credentials.cc \
 src/core/lib/security/credentials/external/url_external_account_credentials.h \
 src/core/lib/security/credentials/fake/fake_credentials.cc \
@@ -1929,10 +1948,14 @@ src/core/lib/security/credentials/ssl/ssl_credentials.cc \
 src/core/lib/security/credentials/ssl/ssl_credentials.h \
 src/core/lib/security/credentials/tls/grpc_tls_certificate_distributor.cc \
 src/core/lib/security/credentials/tls/grpc_tls_certificate_distributor.h \
+src/core/lib/security/credentials/tls/grpc_tls_certificate_provider.cc \
+src/core/lib/security/credentials/tls/grpc_tls_certificate_provider.h \
 src/core/lib/security/credentials/tls/grpc_tls_credentials_options.cc \
 src/core/lib/security/credentials/tls/grpc_tls_credentials_options.h \
 src/core/lib/security/credentials/tls/tls_credentials.cc \
 src/core/lib/security/credentials/tls/tls_credentials.h \
+src/core/lib/security/credentials/tls/tls_utils.cc \
+src/core/lib/security/credentials/tls/tls_utils.h \
 src/core/lib/security/credentials/xds/xds_credentials.cc \
 src/core/lib/security/credentials/xds/xds_credentials.h \
 src/core/lib/security/security_connector/alts/alts_security_connector.cc \
@@ -2126,6 +2149,7 @@ src/cpp/common/secure_auth_context.cc \
 src/cpp/common/secure_auth_context.h \
 src/cpp/common/secure_channel_arguments.cc \
 src/cpp/common/secure_create_auth_context.cc \
+src/cpp/common/tls_certificate_provider.cc \
 src/cpp/common/tls_credentials_options.cc \
 src/cpp/common/tls_credentials_options_util.cc \
 src/cpp/common/tls_credentials_options_util.h \
@@ -2152,6 +2176,7 @@ src/cpp/server/server_context.cc \
 src/cpp/server/server_credentials.cc \
 src/cpp/server/server_posix.cc \
 src/cpp/server/thread_pool_interface.h \
+src/cpp/server/xds_server_credentials.cc \
 src/cpp/thread_manager/thread_manager.cc \
 src/cpp/thread_manager/thread_manager.h \
 src/cpp/util/byte_buffer_cc.cc \

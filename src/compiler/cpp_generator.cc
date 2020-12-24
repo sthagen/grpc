@@ -1924,10 +1924,11 @@ void PrintSourceClientMethod(grpc_generator::Printer* printer,
                    "::grpc::CompletionQueue* cq) {\n");
     printer->Print(*vars,
                    "  return "
-                   "::grpc::internal::ClientAsyncResponseReaderFactory"
-                   "< $Response$>::Create(channel_.get(), cq, "
-                   "rpcmethod_$Method$_, "
-                   "context, request, false);\n"
+                   "::grpc::internal::ClientAsyncResponseReaderHelper::Create"
+                   "< $Response$, $Request$, ::grpc::protobuf::MessageLite, "
+                   "::grpc::protobuf::MessageLite>"
+                   "(channel_.get(), cq, rpcmethod_$Method$_, "
+                   "context, request);\n"
                    "}\n\n");
     printer->Print(*vars,
                    "::grpc::ClientAsyncResponseReader< $Response$>* "
@@ -2216,8 +2217,8 @@ void PrintSourceService(grpc_generator::Printer* printer,
           "    $prefix$$Service$_method_names[$Idx$],\n"
           "    ::grpc::internal::RpcMethod::NORMAL_RPC,\n"
           "    new ::grpc::internal::RpcMethodHandler< $ns$$Service$::Service, "
-          "$Request$, "
-          "$Response$>(\n"
+          "$Request$, $Response$, ::grpc::protobuf::MessageLite, "
+          "::grpc::protobuf::MessageLite>(\n"
           "        []($ns$$Service$::Service* service,\n"
           "           ::grpc::ServerContext* ctx,\n"
           "           const $Request$* req,\n"

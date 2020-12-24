@@ -315,7 +315,7 @@ class Server::UnimplementedAsyncResponse final
           grpc::internal::CallOpSendInitialMetadata,
           grpc::internal::CallOpServerSendStatus> {
  public:
-  UnimplementedAsyncResponse(UnimplementedAsyncRequest* request);
+  explicit UnimplementedAsyncResponse(UnimplementedAsyncRequest* request);
   ~UnimplementedAsyncResponse() override { delete request_; }
 
   bool FinalizeResult(void** tag, bool* status) override {
@@ -592,7 +592,7 @@ class Server::CallbackRequest final
 
   class CallbackCallTag : public grpc_experimental_completion_queue_functor {
    public:
-    CallbackCallTag(Server::CallbackRequest<ServerContextType>* req)
+    explicit CallbackCallTag(Server::CallbackRequest<ServerContextType>* req)
         : req_(req) {
       functor_run = &CallbackCallTag::StaticRun;
       // Set inlineable to true since this callback is internally-controlled
@@ -877,6 +877,7 @@ Server::Server(
     int min_pollers, int max_pollers, int sync_cq_timeout_msec,
     std::vector<std::shared_ptr<grpc::internal::ExternalConnectionAcceptorImpl>>
         acceptors,
+    grpc_server_config_fetcher* server_config_fetcher,
     grpc_resource_quota* server_rq,
     std::vector<
         std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>>
@@ -940,6 +941,7 @@ Server::Server(
     }
   }
   server_ = grpc_server_create(&channel_args, nullptr);
+  grpc_server_set_config_fetcher(server_, server_config_fetcher);
 }
 
 Server::~Server() {
@@ -1009,7 +1011,7 @@ static grpc_server_register_method_payload_handling PayloadHandlingForMethod(
   GPR_UNREACHABLE_CODE(return GRPC_SRM_PAYLOAD_NONE;);
 }
 
-bool Server::RegisterService(const std::string* host, grpc::Service* service) {
+bool Server::RegisterService(const std::string* addr, grpc::Service* service) {
   bool has_async_methods = service->has_async_methods();
   if (has_async_methods) {
     GPR_ASSERT(service->server_ == nullptr &&
@@ -1025,7 +1027,7 @@ bool Server::RegisterService(const std::string* host, grpc::Service* service) {
     }
 
     void* method_registration_tag = grpc_server_register_method(
-        server_, method->name(), host ? host->c_str() : nullptr,
+        server_, method->name(), addr ? addr->c_str() : nullptr,
         PayloadHandlingForMethod(method.get()), 0);
     if (method_registration_tag == nullptr) {
       gpr_log(GPR_DEBUG, "Attempt to register %s multiple times",

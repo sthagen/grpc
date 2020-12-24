@@ -100,6 +100,7 @@
 #define GPR_WINDOWS_TMPFILE
 #define GPR_WINDOWS_LOG
 #define GPR_WINDOWS_CRASH_HANDLER 1
+#define GPR_WINDOWS_STAT
 #define GPR_WINDOWS_STRING
 #define GPR_WINDOWS_TIME
 #endif
@@ -126,6 +127,7 @@
 #define GPR_STDCPP_TLS 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_ANDROID_LOG 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
@@ -154,6 +156,7 @@
 #define GPR_SUPPORT_CHANNELS_FROM_FD 1
 #define GPR_LINUX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -201,21 +204,28 @@
 #if TARGET_OS_IPHONE
 #define GPR_PLATFORM_STRING "ios"
 #define GPR_CPU_IPHONE 1
-#define GPR_STDCPP_TLS 1
 #define GRPC_CFSTREAM 1
 /* the c-ares resolver isn't safe to enable on iOS */
 #define GRPC_ARES 0
 #else /* TARGET_OS_IPHONE */
 #define GPR_PLATFORM_STRING "osx"
 #define GPR_CPU_POSIX 1
-#define GPR_STDCPP_TLS 1
 #define GPR_POSIX_CRASH_HANDLER 1
+#endif
+#ifdef __has_feature
+#if __has_feature(cxx_thread_local)
+#define GPR_STDCPP_TLS 1
+#endif
+#endif
+#ifndef GPR_STDCPP_TLS
+#define GPR_PTHREAD_TLS 1
 #endif
 #define GPR_APPLE 1
 #define GPR_GCC_ATOMIC 1
 #define GPR_POSIX_LOG 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -242,6 +252,7 @@
 #define GPR_POSIX_LOG 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -266,6 +277,7 @@
 #define GPR_POSIX_LOG 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -287,6 +299,7 @@
 #define GPR_POSIX_LOG 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -310,6 +323,7 @@
 #define GPR_POSIX_LOG 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -339,6 +353,7 @@
 #define GPR_POSIX_LOG 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_STRING 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
@@ -365,6 +380,7 @@
 #define GPR_POSIX_SYNC 1
 #define GPR_POSIX_ENV 1
 #define GPR_POSIX_TMPFILE 1
+#define GPR_POSIX_STAT 1
 #define GPR_POSIX_SUBPROCESS 1
 #define GPR_POSIX_SYNC 1
 #define GPR_POSIX_STRING 1

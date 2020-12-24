@@ -46,6 +46,10 @@ ABSL_FLAG(
     std::string, test_case, "large_unary",
     "Configure different test cases. Valid options are:\n\n"
     "all : all test cases;\n"
+
+    // TODO(veblush): Replace the help message with the following full message
+    // once Abseil fixes the flag-help compiler error on Windows. (b/171659833)
+    /*
     "cancel_after_begin : cancel stream after starting it;\n"
     "cancel_after_first_response: cancel on first response;\n"
     "channel_soak: sends 'soak_iterations' rpcs, rebuilds channel each time;\n"
@@ -75,7 +79,9 @@ ABSL_FLAG(
     "status_code_and_message: verify status code & message;\n"
     "timeout_on_sleeping_server: deadline exceeds on stream;\n"
     "unimplemented_method: client calls an unimplemented method;\n"
-    "unimplemented_service: client calls an unimplemented service;\n");
+    "unimplemented_service: client calls an unimplemented service;\n"
+    */
+);
 ABSL_FLAG(std::string, default_service_account, "",
           "Email of GCE default service account");
 ABSL_FLAG(std::string, service_account_key_file, "",

@@ -19,8 +19,8 @@ py_library(
     testonly = 1,
     srcs = ["wait_for_ready_example.py"],
     deps = [
-        "//examples:helloworld_py_pb2",
-        "//examples:helloworld_py_pb2_grpc",
+        "//examples/protos:helloworld_py_pb2",
+        "//examples/protos:helloworld_py_pb2_grpc",
         "//src/python/grpcio/grpc:grpcio",
     ],
 )

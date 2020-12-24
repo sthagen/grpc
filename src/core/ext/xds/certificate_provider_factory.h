@@ -23,7 +23,7 @@
 
 #include "src/core/lib/iomgr/error.h"
 #include "src/core/lib/json/json.h"
-#include "src/core/lib/security/certificate_provider.h"
+#include "src/core/lib/security/credentials/tls/grpc_tls_certificate_provider.h"
 
 namespace grpc_core {
 
@@ -39,6 +39,8 @@ class CertificateProviderFactory {
     // Name of the type of the CertificateProvider. Unique to each type of
     // config.
     virtual const char* name() const = 0;
+
+    virtual std::string ToString() const = 0;
   };
 
   virtual ~CertificateProviderFactory() = default;

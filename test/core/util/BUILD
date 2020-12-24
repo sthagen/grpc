@@ -22,24 +22,10 @@ grpc_package(
 )
 
 grpc_cc_library(
-    name = "grpc_debugger_macros",
-    srcs = [
-        "debugger_macros.cc",
-    ],
-    hdrs = [
-        "debugger_macros.h",
-    ],
-    deps = [
-        "//:grpc_common",
-    ],
-)
-
-grpc_cc_library(
     name = "grpc_test_util_base",
     srcs = [
         "cmdline.cc",
         "eval_args_mock_endpoint.cc",
-        "examine_stack.cc",
         "fuzzer_util.cc",
         "grpc_profiler.cc",
         "histogram.cc",
@@ -63,7 +49,6 @@ grpc_cc_library(
     hdrs = [
         "cmdline.h",
         "eval_args_mock_endpoint.h",
-        "examine_stack.h",
         "fuzzer_util.h",
         "grpc_profiler.h",
         "histogram.h",
@@ -89,12 +74,11 @@ grpc_cc_library(
     ],
     external_deps = [
         "absl/debugging:failure_signal_handler",
-        "absl/debugging:stacktrace",
         "absl/debugging:symbolize",
     ],
     language = "C++",
     deps = [
-        ":grpc_debugger_macros",
+        ":stack_tracer",
         "//:gpr",
         "//:grpc_base_c",
         "//:grpc_common",
@@ -103,8 +87,8 @@ grpc_cc_library(
 
 grpc_cc_library(
     name = "grpc_test_util",
-    srcs = [],
-    hdrs = [],
+    srcs = ["tls_utils.cc"],
+    hdrs = ["tls_utils.h"],
     language = "C++",
     deps = [
         ":grpc_test_util_base",
@@ -169,6 +153,43 @@ sh_library(
 sh_library(
     name = "run_with_poller_sh",
     srcs = ["run_with_poller.sh"],
+)
+
+grpc_cc_library(
+    name = "stack_tracer",
+    srcs = [
+        "stack_tracer.cc",
+    ],
+    hdrs = [
+        "stack_tracer.h",
+    ],
+    external_deps = [
+        "absl/debugging:stacktrace",
+        "absl/debugging:symbolize",
+    ],
+    language = "C++",
+    deps = [
+        "//:grpc_common",
+    ],
+)
+
+grpc_cc_test(
+    name = "stack_tracer_test",
+    srcs = [
+        "stack_tracer_test.cc",
+    ],
+    external_deps = [
+        "absl/debugging:symbolize",
+        "gtest",
+    ],
+    language = "C++",
+    # TODO(https://github.com/grpc/grpc/issues/24627): Disable this on Windows
+    tags = ["no_windows"],
+    uses_polling = False,
+    deps = [
+        ":grpc_test_util",
+        ":stack_tracer",
+    ],
 )
 
 grpc_cc_library(

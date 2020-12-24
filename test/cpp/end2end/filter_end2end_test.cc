@@ -51,7 +51,7 @@ namespace grpc {
 namespace testing {
 namespace {
 
-void* tag(int i) { return (void*)static_cast<intptr_t>(i); }
+void* tag(int i) { return reinterpret_cast<void*>(i); }
 
 void verify_ok(CompletionQueue* cq, int i, bool expect_ok) {
   bool ok;
@@ -152,10 +152,10 @@ class FilterEnd2endTest : public ::testing::Test {
     bool ignored_ok;
     cli_cq_.Shutdown();
     srv_cq_->Shutdown();
-    while (cli_cq_.Next(&ignored_tag, &ignored_ok))
-      ;
-    while (srv_cq_->Next(&ignored_tag, &ignored_ok))
-      ;
+    while (cli_cq_.Next(&ignored_tag, &ignored_ok)) {
+    }
+    while (srv_cq_->Next(&ignored_tag, &ignored_ok)) {
+    }
   }
 
   void ResetStub() {

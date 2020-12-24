@@ -31,7 +31,9 @@
 #include "test/cpp/util/test_credentials_provider.h"
 
 ABSL_FLAG(int32_t, driver_port, 0, "Port for communication with driver");
-ABSL_FLAG(int32_t, server_port, 0, "Port for operation as a server");
+ABSL_FLAG(int32_t, server_port, 0,
+          "Port for operation as a server, if not specified by the server "
+          "config message");
 ABSL_FLAG(std::string, credential_type, grpc::testing::kInsecureCredentialsType,
           "Credential type for communication with driver");
 

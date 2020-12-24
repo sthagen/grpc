@@ -47,7 +47,7 @@ namespace {
 
 class LoggingInterceptor : public experimental::Interceptor {
  public:
-  LoggingInterceptor(experimental::ServerRpcInfo* info) {
+  explicit LoggingInterceptor(experimental::ServerRpcInfo* info) {
     info_ = info;
 
     // Check the method name and compare to the type
@@ -150,7 +150,7 @@ class LoggingInterceptorFactory
 // Test if SendMessage function family works as expected for sync/callback apis
 class SyncSendMessageTester : public experimental::Interceptor {
  public:
-  SyncSendMessageTester(experimental::ServerRpcInfo* /*info*/) {}
+  explicit SyncSendMessageTester(experimental::ServerRpcInfo* /*info*/) {}
 
   void Intercept(experimental::InterceptorBatchMethods* methods) override {
     if (methods->QueryInterceptionHookPoint(
@@ -180,7 +180,7 @@ class SyncSendMessageTesterFactory
 // Test if SendMessage function family works as expected for sync/callback apis
 class SyncSendMessageVerifier : public experimental::Interceptor {
  public:
-  SyncSendMessageVerifier(experimental::ServerRpcInfo* /*info*/) {}
+  explicit SyncSendMessageVerifier(experimental::ServerRpcInfo* /*info*/) {}
 
   void Intercept(experimental::InterceptorBatchMethods* methods) override {
     if (methods->QueryInterceptionHookPoint(
@@ -407,8 +407,8 @@ TEST_F(ServerInterceptorsAsyncEnd2endTest, UnaryTest) {
   cq->Shutdown();
   void* ignored_tag;
   bool ignored_ok;
-  while (cq->Next(&ignored_tag, &ignored_ok))
-    ;
+  while (cq->Next(&ignored_tag, &ignored_ok)) {
+  }
   grpc_recycle_unused_port(port);
 }
 
@@ -489,8 +489,8 @@ TEST_F(ServerInterceptorsAsyncEnd2endTest, BidiStreamingTest) {
   cq->Shutdown();
   void* ignored_tag;
   bool ignored_ok;
-  while (cq->Next(&ignored_tag, &ignored_ok))
-    ;
+  while (cq->Next(&ignored_tag, &ignored_ok)) {
+  }
   grpc_recycle_unused_port(port);
 }
 
@@ -594,10 +594,10 @@ TEST_F(ServerInterceptorsAsyncEnd2endTest, GenericRPCTest) {
   server->Shutdown();
   void* ignored_tag;
   bool ignored_ok;
-  while (cli_cq.Next(&ignored_tag, &ignored_ok))
-    ;
-  while (srv_cq->Next(&ignored_tag, &ignored_ok))
-    ;
+  while (cli_cq.Next(&ignored_tag, &ignored_ok)) {
+  }
+  while (srv_cq->Next(&ignored_tag, &ignored_ok)) {
+  }
   grpc_recycle_unused_port(port);
 }
 
@@ -644,8 +644,8 @@ TEST_F(ServerInterceptorsAsyncEnd2endTest, UnimplementedRpcTest) {
   cq->Shutdown();
   void* ignored_tag;
   bool ignored_ok;
-  while (cq->Next(&ignored_tag, &ignored_ok))
-    ;
+  while (cq->Next(&ignored_tag, &ignored_ok)) {
+  }
   grpc_recycle_unused_port(port);
 }
 

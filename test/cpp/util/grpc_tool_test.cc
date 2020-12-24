@@ -32,6 +32,7 @@
 #include <chrono>
 #include <sstream>
 
+#include "absl/flags/declare.h"
 #include "absl/flags/flag.h"
 #include "src/core/lib/gpr/env.h"
 #include "src/core/lib/iomgr/load_file.h"
@@ -132,7 +133,7 @@ const int kServerDefaultResponseStreamsToSend = 3;
 
 class TestCliCredentials final : public grpc::testing::CliCredentials {
  public:
-  TestCliCredentials(bool secure = false) : secure_(secure) {}
+  explicit TestCliCredentials(bool secure = false) : secure_(secure) {}
   std::shared_ptr<grpc::ChannelCredentials> GetChannelCredentials()
       const override {
     if (!secure_) {

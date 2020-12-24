@@ -40,6 +40,7 @@
 namespace grpc_core {
 
 extern TraceFlag grpc_xds_client_trace;
+extern TraceFlag grpc_xds_client_refcount_trace;
 
 class XdsClient : public DualRefCounted<XdsClient> {
  public:
@@ -87,6 +88,10 @@ class XdsClient : public DualRefCounted<XdsClient> {
   // Callers should not instantiate directly.  Use GetOrCreate() instead.
   explicit XdsClient(grpc_error** error);
   ~XdsClient() override;
+
+  CertificateProviderStore& certificate_provider_store() {
+    return *certificate_provider_store_;
+  }
 
   grpc_pollset_set* interested_parties() const { return interested_parties_; }
 
@@ -198,7 +203,7 @@ class XdsClient : public DualRefCounted<XdsClient> {
     class LrsCallState;
 
     ChannelState(WeakRefCountedPtr<XdsClient> xds_client,
-                 grpc_channel* channel);
+                 const XdsBootstrap::XdsServer& server);
     ~ChannelState() override;
 
     void Orphan() override;
@@ -225,6 +230,8 @@ class XdsClient : public DualRefCounted<XdsClient> {
 
     // The owning xds client.
     WeakRefCountedPtr<XdsClient> xds_client_;
+
+    const XdsBootstrap::XdsServer& server_;
 
     // The channel and its status.
     grpc_channel* channel_;
@@ -290,6 +297,7 @@ class XdsClient : public DualRefCounted<XdsClient> {
   const grpc_millis request_timeout_;
   grpc_pollset_set* interested_parties_;
   std::unique_ptr<XdsBootstrap> bootstrap_;
+  OrphanablePtr<CertificateProviderStore> certificate_provider_store_;
   XdsApi api_;
 
   Mutex mu_;
