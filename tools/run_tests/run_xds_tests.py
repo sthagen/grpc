@@ -68,6 +68,7 @@ _ADDITIONAL_TEST_CASES = [
     'path_matching',
     'header_matching',
     'circuit_breaking',
+    'timeout',
 ]
 
 
@@ -285,6 +286,9 @@ _TESTS_TO_SEND_METADATA = ['header_matching']
 _TEST_METADATA_KEY = 'xds_md'
 _TEST_METADATA_VALUE_UNARY = 'unary_yranu'
 _TEST_METADATA_VALUE_EMPTY = 'empty_ytpme'
+# Extra RPC metadata whose value is a number, sent with UnaryCall only.
+_TEST_METADATA_NUMERIC_KEY = 'xds_md_numeric'
+_TEST_METADATA_NUMERIC_VALUE = '159'
 _PATH_MATCHER_NAME = 'path-matcher'
 _BASE_TEMPLATE_NAME = 'test-template'
 _BASE_INSTANCE_GROUP_NAME = 'test-ig'
@@ -342,7 +346,7 @@ def get_client_accumulated_stats():
             return response
 
 
-def configure_client(rpc_types, metadata):
+def configure_client(rpc_types, metadata=[], timeout_sec=None):
     if CLIENT_HOSTS:
         hosts = CLIENT_HOSTS
     else:
@@ -358,6 +362,8 @@ def configure_client(rpc_types, metadata):
                 md.type = rpc_type
                 md.key = md_key
                 md.value = md_value
+            if timeout_sec:
+                request.timeout_sec = timeout_sec
             logger.debug(
                 'Invoking XdsUpdateClientConfigureService RPC to %s:%d: %s',
                 host, args.stats_port, request)
@@ -1045,6 +1051,21 @@ def test_path_matching(gcp, original_backend_service, instance_group,
                     "UnaryCall": alternate_backend_instances,
                     "EmptyCall": original_backend_instances
                 }),
+            (
+                [{
+                    'priority': 0,
+                    # ignoreCase EmptyCall -> alternate_backend_service.
+                    'matchRules': [{
+                        # Case insensitive matching.
+                        'fullPathMatch': '/gRpC.tEsTinG.tEstseRvice/empTycaLl',
+                        'ignoreCase': True,
+                    }],
+                    'service': alternate_backend_service.url
+                }],
+                {
+                    "UnaryCall": original_backend_instances,
+                    "EmptyCall": alternate_backend_instances
+                }),
         ]
 
         for (route_rules, expected_instances) in test_cases:
@@ -1061,8 +1082,8 @@ def test_path_matching(gcp, original_backend_service, instance_group,
                 original_backend_instances + alternate_backend_instances,
                 _WAIT_FOR_STATS_SEC)
 
-            retry_count = 40
-            # Each attempt takes about 10 seconds, 40 retries is equivalent to 400
+            retry_count = 80
+            # Each attempt takes about 5 seconds, 80 retries is equivalent to 400
             # seconds timeout.
             for i in range(retry_count):
                 stats = get_client_stats(_NUM_TEST_RPCS, _WAIT_FOR_STATS_SEC)
@@ -1161,15 +1182,14 @@ def test_header_matching(gcp, original_backend_service, instance_group,
             (
                 [{
                     'priority': 0,
-                    # Header invert ExactMatch -> alternate_backend_service.
-                    # EmptyCall is sent with the metadata, so will be sent to original.
+                    # Header 'xds_md_numeric' present -> alternate_backend_service.
+                    # UnaryCall is sent with the metadata, so will be sent to alternative.
                     'matchRules': [{
                         'prefixMatch':
                             '/',
                         'headerMatches': [{
-                            'headerName': _TEST_METADATA_KEY,
-                            'exactMatch': _TEST_METADATA_VALUE_EMPTY,
-                            'invertMatch': True
+                            'headerName': _TEST_METADATA_NUMERIC_KEY,
+                            'presentMatch': True
                         }]
                     }],
                     'service': alternate_backend_service.url
@@ -1177,6 +1197,71 @@ def test_header_matching(gcp, original_backend_service, instance_group,
                 {
                     "EmptyCall": original_backend_instances,
                     "UnaryCall": alternate_backend_instances
+                }),
+            (
+                [{
+                    'priority': 0,
+                    # Header invert ExactMatch -> alternate_backend_service.
+                    # UnaryCall is sent with the metadata, so will be sent to
+                    # original. EmptyCall will be sent to alternative.
+                    'matchRules': [{
+                        'prefixMatch':
+                            '/',
+                        'headerMatches': [{
+                            'headerName': _TEST_METADATA_KEY,
+                            'exactMatch': _TEST_METADATA_VALUE_UNARY,
+                            'invertMatch': True
+                        }]
+                    }],
+                    'service': alternate_backend_service.url
+                }],
+                {
+                    "EmptyCall": alternate_backend_instances,
+                    "UnaryCall": original_backend_instances
+                }),
+            (
+                [{
+                    'priority': 0,
+                    # Header 'xds_md_numeric' range [100,200] -> alternate_backend_service.
+                    # UnaryCall is sent with the metadata in range.
+                    'matchRules': [{
+                        'prefixMatch':
+                            '/',
+                        'headerMatches': [{
+                            'headerName': _TEST_METADATA_NUMERIC_KEY,
+                            'rangeMatch': {
+                                'rangeStart': '100',
+                                'rangeEnd': '200'
+                            }
+                        }]
+                    }],
+                    'service': alternate_backend_service.url
+                }],
+                {
+                    "EmptyCall": original_backend_instances,
+                    "UnaryCall": alternate_backend_instances
+                }),
+            (
+                [{
+                    'priority': 0,
+                    # Header RegexMatch -> alternate_backend_service.
+                    # EmptyCall is sent with the metadata.
+                    'matchRules': [{
+                        'prefixMatch':
+                            '/',
+                        'headerMatches': [{
+                            'headerName':
+                                _TEST_METADATA_KEY,
+                            'regexMatch':
+                                "^%s.*%s$" % (_TEST_METADATA_VALUE_EMPTY[:2],
+                                              _TEST_METADATA_VALUE_EMPTY[-2:])
+                        }]
+                    }],
+                    'service': alternate_backend_service.url
+                }],
+                {
+                    "EmptyCall": alternate_backend_instances,
+                    "UnaryCall": original_backend_instances
                 }),
         ]
 
@@ -1195,8 +1280,8 @@ def test_header_matching(gcp, original_backend_service, instance_group,
                 original_backend_instances + alternate_backend_instances,
                 _WAIT_FOR_STATS_SEC)
 
-            retry_count = 40
-            # Each attempt takes about 10 seconds, 40 retries is equivalent to 400
+            retry_count = 80
+            # Each attempt takes about 5 seconds, 80 retries is equivalent to 400
             # seconds timeout.
             for i in range(retry_count):
                 stats = get_client_stats(_NUM_TEST_RPCS, _WAIT_FOR_STATS_SEC)
@@ -1313,7 +1398,7 @@ def test_circuit_breaking(gcp, original_backend_service, instance_group,
         configure_client([
             messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL,
             messages_pb2.ClientConfigureRequest.RpcType.EMPTY_CALL
-        ], [])
+        ])
         logger.info('Patching url map with %s', route_rules)
         patch_url_map_backend_service(gcp,
                                       extra_backend_service,
@@ -1363,13 +1448,136 @@ def test_circuit_breaking(gcp, original_backend_service, instance_group,
         # Avoid new RPCs being outstanding (some test clients create threads
         # for sending RPCs) after restoring backend services.
         configure_client(
-            [messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL], [])
+            [messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL])
     finally:
         patch_url_map_backend_service(gcp, original_backend_service)
         patch_backend_service(gcp, original_backend_service, [instance_group])
         for backend_service in additional_backend_services:
             delete_backend_service(gcp, backend_service)
         set_validate_for_proxyless(gcp, True)
+
+
+def test_timeout(gcp, original_backend_service, instance_group):
+    logger.info('Running test_timeout')
+
+    logger.info('waiting for original backends to become healthy')
+    wait_for_healthy_backends(gcp, original_backend_service, instance_group)
+
+    # UnaryCall -> maxStreamDuration:3s
+    route_rules = [{
+        'priority': 0,
+        'matchRules': [{
+            'fullPathMatch': '/grpc.testing.TestService/UnaryCall'
+        }],
+        'service': original_backend_service.url,
+        'routeAction': {
+            'maxStreamDuration': {
+                'seconds': 3,
+            },
+        },
+    }]
+    patch_url_map_backend_service(gcp,
+                                  original_backend_service,
+                                  route_rules=route_rules)
+    # A list of tuples (testcase_name, {client_config}, {expected_results})
+    test_cases = [
+        (
+            'app_timeout_exceeded',
+            # UnaryCall only with sleep-2; timeout=1s; calls timeout.
+            {
+                'rpc_types': [
+                    messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL,
+                ],
+                'metadata': [
+                    (messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL,
+                     'rpc-behavior', 'sleep-2'),
+                ],
+                'timeout_sec': 1,
+            },
+            {
+                'UNARY_CALL': 4,  # DEADLINE_EXCEEDED
+            },
+        ),
+        (
+            'timeout_not_exceeded',
+            # UnaryCall only with no sleep; calls succeed.
+            {
+                'rpc_types': [
+                    messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL,
+                ],
+            },
+            {
+                'UNARY_CALL': 0,
+            },
+        ),
+        (
+            'timeout_exceeded (UNARY_CALL), timeout_different_route (EMPTY_CALL)',
+            # UnaryCall and EmptyCall both sleep-4.
+            # UnaryCall timeouts, EmptyCall succeeds.
+            {
+                'rpc_types': [
+                    messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL,
+                    messages_pb2.ClientConfigureRequest.RpcType.EMPTY_CALL,
+                ],
+                'metadata': [
+                    (messages_pb2.ClientConfigureRequest.RpcType.UNARY_CALL,
+                     'rpc-behavior', 'sleep-4'),
+                    (messages_pb2.ClientConfigureRequest.RpcType.EMPTY_CALL,
+                     'rpc-behavior', 'sleep-4'),
+                ],
+            },
+            {
+                'UNARY_CALL': 4,  # DEADLINE_EXCEEDED
+                'EMPTY_CALL': 0,
+            },
+        ),
+    ]
+
+    try:
+        for (testcase_name, client_config, expected_results) in test_cases:
+            logger.info('starting case %s', testcase_name)
+            configure_client(**client_config)
+            # wait a second to help ensure the client stops sending RPCs with
+            # the old config.  We will make multiple attempts if it is failing,
+            # but this improves confidence that the test is valid if the
+            # previous client_config would lead to the same results.
+            time.sleep(1)
+            # Each attempt takes 10 seconds; 20 attempts is equivalent to 200
+            # second timeout.
+            attempt_count = 20
+            before_stats = get_client_accumulated_stats()
+            if not before_stats.stats_per_method:
+                raise ValueError(
+                    'stats.stats_per_method is None, the interop client stats service does not support this test case'
+                )
+            for i in range(attempt_count):
+                logger.info('%s: attempt %d', testcase_name, i)
+
+                test_runtime_secs = 10
+                time.sleep(test_runtime_secs)
+                after_stats = get_client_accumulated_stats()
+
+                success = True
+                for rpc, status in expected_results.items():
+                    qty = (after_stats.stats_per_method[rpc].result[status] -
+                           before_stats.stats_per_method[rpc].result[status])
+                    want = test_runtime_secs * args.qps
+                    # Allow 10% deviation from expectation to reduce flakiness
+                    if qty < (want * .9) or qty > (want * 1.1):
+                        logger.info('%s: failed due to %s[%s]: got %d want ~%d',
+                                    testcase_name, rpc, status, qty, want)
+                        success = False
+                if success:
+                    break
+                logger.info('%s attempt %d failed', testcase_name, i)
+                before_stats = after_stats
+            else:
+                raise Exception(
+                    '%s: timeout waiting for expected results: %s; got %s' %
+                    (testcase_name, expected_results,
+                     after_stats.stats_per_method))
+    finally:
+        patch_url_map_backend_service(gcp, original_backend_service)
 
 
 def set_validate_for_proxyless(gcp, validate_for_proxyless):
@@ -2197,6 +2405,7 @@ try:
                 bootstrap_path = bootstrap_file.name
         client_env['GRPC_XDS_BOOTSTRAP'] = bootstrap_path
         client_env['GRPC_XDS_EXPERIMENTAL_CIRCUIT_BREAKING'] = 'true'
+        client_env['GRPC_XDS_EXPERIMENTAL_ENABLE_TIMEOUT'] = 'true'
         test_results = {}
         failed_tests = []
         for test_case in args.test_case:
@@ -2214,11 +2423,13 @@ try:
                 rpcs_to_send = '--rpc="UnaryCall"'
 
             if test_case in _TESTS_TO_SEND_METADATA:
-                metadata_to_send = '--metadata="EmptyCall:{keyE}:{valueE},UnaryCall:{keyU}:{valueU}"'.format(
+                metadata_to_send = '--metadata="EmptyCall:{keyE}:{valueE},UnaryCall:{keyU}:{valueU},UnaryCall:{keyNU}:{valueNU}"'.format(
                     keyE=_TEST_METADATA_KEY,
                     valueE=_TEST_METADATA_VALUE_EMPTY,
                     keyU=_TEST_METADATA_KEY,
-                    valueU=_TEST_METADATA_VALUE_UNARY)
+                    valueU=_TEST_METADATA_VALUE_UNARY,
+                    keyNU=_TEST_METADATA_NUMERIC_KEY,
+                    valueNU=_TEST_METADATA_NUMERIC_VALUE)
             else:
                 # Setting the arg explicitly to empty with '--metadata=""'
                 # makes C# client fail
@@ -2302,6 +2513,8 @@ try:
                 elif test_case == 'circuit_breaking':
                     test_circuit_breaking(gcp, backend_service, instance_group,
                                           same_zone_instance_group)
+                elif test_case == 'timeout':
+                    test_timeout(gcp, backend_service, instance_group)
                 else:
                     logger.error('Unknown test case: %s', test_case)
                     sys.exit(1)

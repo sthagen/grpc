@@ -49,6 +49,7 @@
 #include <grpcpp/xds_server_builder.h>
 
 #include "src/core/ext/filters/client_channel/backup_poller.h"
+#include "src/core/ext/filters/client_channel/lb_policy/xds/xds_channel_args.h"
 #include "src/core/ext/filters/client_channel/resolver/fake/fake_resolver.h"
 #include "src/core/ext/filters/client_channel/server_address.h"
 #include "src/core/ext/xds/certificate_provider_registry.h"
@@ -81,6 +82,7 @@
 #include "src/proto/grpc/testing/xds/lrs_for_test.grpc.pb.h"
 
 #include "src/proto/grpc/testing/xds/v3/ads.grpc.pb.h"
+#include "src/proto/grpc/testing/xds/v3/aggregate_cluster.grpc.pb.h"
 #include "src/proto/grpc/testing/xds/v3/cluster.grpc.pb.h"
 #include "src/proto/grpc/testing/xds/v3/discovery.grpc.pb.h"
 #include "src/proto/grpc/testing/xds/v3/endpoint.grpc.pb.h"
@@ -98,11 +100,13 @@ using std::chrono::system_clock;
 
 using ::envoy::config::cluster::v3::CircuitBreakers;
 using ::envoy::config::cluster::v3::Cluster;
+using ::envoy::config::cluster::v3::CustomClusterType;
 using ::envoy::config::cluster::v3::RoutingPriority;
 using ::envoy::config::endpoint::v3::ClusterLoadAssignment;
 using ::envoy::config::endpoint::v3::HealthStatus;
 using ::envoy::config::listener::v3::Listener;
 using ::envoy::config::route::v3::RouteConfiguration;
+using ::envoy::extensions::clusters::aggregate::v3::ClusterConfig;
 using ::envoy::extensions::filters::network::http_connection_manager::v3::
     HttpConnectionManager;
 using ::envoy::extensions::transport_sockets::tls::v3::DownstreamTlsContext;
@@ -471,8 +475,6 @@ class ClientStats {
   std::map<std::string, uint64_t> dropped_requests_;
 };
 
-// TODO(roth) move all of the code that deals with default resource contents out
-// of AdsServiceImpl and into XdsEnd2EndTest.
 class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
  public:
   struct ResponseState {
@@ -832,15 +834,14 @@ class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
                         SubscriptionMap* subscription_map,
                         SentState* sent_state,
                         absl::optional<DiscoveryResponse>* response) {
-      // Determine client resource type version.
-      int client_resource_type_version = 0;
-      if (!request.version_info().empty()) {
-        GPR_ASSERT(absl::SimpleAtoi(request.version_info(),
-                                    &client_resource_type_version));
-      }
       // Check the nonce sent by the client, if any.
       // (This will be absent on the first request on a stream.)
       if (request.response_nonce().empty()) {
+        int client_resource_type_version = 0;
+        if (!request.version_info().empty()) {
+          GPR_ASSERT(absl::SimpleAtoi(request.version_info(),
+                                      &client_resource_type_version));
+        }
         EXPECT_GE(client_resource_type_version,
                   parent_->resource_type_min_versions_[v3_resource_type])
             << "resource_type: " << v3_resource_type;
@@ -852,8 +853,7 @@ class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
         // Check for ACK or NACK.
         auto it = parent_->resource_type_response_state_.find(v3_resource_type);
         if (it != parent_->resource_type_response_state_.end()) {
-          if (client_resource_type_version ==
-              sent_state->resource_type_version) {
+          if (!request.has_error_detail()) {
             it->second.state = ResponseState::ACKED;
             it->second.error_message.clear();
             gpr_log(GPR_INFO,
@@ -895,8 +895,7 @@ class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
                                     &subscription_state, &resource_state,
                                     update_queue) ||
             ClientNeedsResourceUpdate(resource_type_state, resource_state,
-                                      client_resource_type_version,
-                                      &subscription_state)) {
+                                      sent_state->resource_type_version)) {
           gpr_log(GPR_INFO, "ADS[%p]: Sending update for type=%s name=%s", this,
                   request.type_url().c_str(), resource_name.c_str());
           resources_added_to_response.emplace(resource_name);
@@ -942,11 +941,9 @@ class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
       auto& resource_name_map = resource_type_state.resource_name_map;
       auto it = subscription_name_map.find(resource_name);
       if (it != subscription_name_map.end()) {
-        SubscriptionState& subscription_state = it->second;
         ResourceState& resource_state = resource_name_map[resource_name];
         if (ClientNeedsResourceUpdate(resource_type_state, resource_state,
-                                      sent_state->resource_type_version,
-                                      &subscription_state)) {
+                                      sent_state->resource_type_version)) {
           gpr_log(GPR_INFO, "ADS[%p]: Sending update for type=%s name=%s", this,
                   resource_type.c_str(), resource_name.c_str());
           response->emplace();
@@ -1050,7 +1047,7 @@ class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
     }
 
     static void CheckBuildVersion(
-        const ::envoy::service::discovery::v3::DiscoveryRequest& request) {}
+        const ::envoy::service::discovery::v3::DiscoveryRequest& /*request*/) {}
 
     AdsServiceImpl* parent_;
     const bool is_v2_;
@@ -1060,8 +1057,7 @@ class AdsServiceImpl : public std::enable_shared_from_this<AdsServiceImpl> {
   // the resource.
   static bool ClientNeedsResourceUpdate(
       const ResourceTypeState& resource_type_state,
-      const ResourceState& resource_state, int client_resource_type_version,
-      SubscriptionState* subscription_state) {
+      const ResourceState& resource_state, int client_resource_type_version) {
     return client_resource_type_version <
                resource_type_state.resource_type_version &&
            resource_state.resource_type_version <=
@@ -1449,15 +1445,15 @@ class FakeCertificateProviderFactory
   const char* name() const override { return name_; }
 
   grpc_core::RefCountedPtr<grpc_core::CertificateProviderFactory::Config>
-  CreateCertificateProviderConfig(const grpc_core::Json& config_json,
-                                  grpc_error** error) override {
+  CreateCertificateProviderConfig(const grpc_core::Json& /*config_json*/,
+                                  grpc_error** /*error*/) override {
     return grpc_core::MakeRefCounted<Config>(name_);
   }
 
   grpc_core::RefCountedPtr<grpc_tls_certificate_provider>
   CreateCertificateProvider(
       grpc_core::RefCountedPtr<grpc_core::CertificateProviderFactory::Config>
-          config) override {
+      /*config*/) override {
     if (*cert_data_map_ == nullptr) return nullptr;
     return grpc_core::MakeRefCounted<FakeCertificateProvider>(**cert_data_map_);
   }
@@ -1502,21 +1498,51 @@ std::shared_ptr<ChannelCredentials> CreateTlsFallbackCredentials() {
   return channel_creds;
 }
 
+namespace {
+
+void* response_generator_arg_copy(void* p) {
+  auto* generator = static_cast<grpc_core::FakeResolverResponseGenerator*>(p);
+  generator->Ref().release();
+  return p;
+}
+
+void response_generator_arg_destroy(void* p) {
+  auto* generator = static_cast<grpc_core::FakeResolverResponseGenerator*>(p);
+  generator->Unref();
+}
+
+int response_generator_cmp(void* a, void* b) { return GPR_ICMP(a, b); }
+
+const grpc_arg_pointer_vtable
+    kLogicalDnsClusterResolverResponseGeneratorVtable = {
+        response_generator_arg_copy, response_generator_arg_destroy,
+        response_generator_cmp};
+
+}  // namespace
+
 class XdsEnd2endTest : public ::testing::TestWithParam<TestType> {
  protected:
   XdsEnd2endTest(size_t num_backends, size_t num_balancers,
                  int client_load_reporting_interval_seconds = 100,
-                 bool use_xds_enabled_server = false)
+                 bool use_xds_enabled_server = false,
+                 bool bootstrap_contents_from_env_var = false)
       : num_backends_(num_backends),
         num_balancers_(num_balancers),
         client_load_reporting_interval_seconds_(
             client_load_reporting_interval_seconds),
-        use_xds_enabled_server_(use_xds_enabled_server) {}
+        use_xds_enabled_server_(use_xds_enabled_server),
+        bootstrap_contents_from_env_var_(bootstrap_contents_from_env_var) {}
 
   void SetUp() override {
     gpr_setenv("GRPC_XDS_EXPERIMENTAL_V3_SUPPORT", "true");
-    gpr_setenv("GRPC_XDS_BOOTSTRAP",
-               GetParam().use_v2() ? g_bootstrap_file_v2 : g_bootstrap_file_v3);
+    if (bootstrap_contents_from_env_var_) {
+      gpr_setenv("GRPC_XDS_BOOTSTRAP_CONFIG",
+                 GetParam().use_v2() ? kBootstrapFileV2 : kBootstrapFileV3);
+    } else {
+      gpr_setenv("GRPC_XDS_BOOTSTRAP", GetParam().use_v2()
+                                           ? g_bootstrap_file_v2
+                                           : g_bootstrap_file_v3);
+    }
     g_port_saver->Reset();
     bool localhost_resolves_to_ipv4 = false;
     bool localhost_resolves_to_ipv6 = false;
@@ -1531,6 +1557,9 @@ class XdsEnd2endTest : public ::testing::TestWithParam<TestType> {
     xds_channel_args_to_add_.emplace_back(
         grpc_core::FakeResolverResponseGenerator::MakeChannelArg(
             lb_channel_response_generator_.get()));
+    // Inject xDS logical cluster resolver response generator.
+    logical_dns_cluster_resolver_response_generator_ =
+        grpc_core::MakeRefCounted<grpc_core::FakeResolverResponseGenerator>();
     if (xds_resource_does_not_exist_timeout_ms_ > 0) {
       xds_channel_args_to_add_.emplace_back(grpc_channel_arg_integer_create(
           const_cast<char*>(GRPC_ARG_XDS_RESOURCE_DOES_NOT_EXIST_TIMEOUT_MS),
@@ -1597,6 +1626,8 @@ class XdsEnd2endTest : public ::testing::TestWithParam<TestType> {
     // Clear global xDS channel args, since they will go out of scope
     // when this test object is destroyed.
     grpc_core::internal::SetXdsChannelArgsForTest(nullptr);
+    gpr_unsetenv("GRPC_XDS_BOOTSTRAP");
+    gpr_unsetenv("GRPC_XDS_BOOTSTRAP_CONFIG");
   }
 
   void StartAllBackends() {
@@ -1634,6 +1665,10 @@ class XdsEnd2endTest : public ::testing::TestWithParam<TestType> {
       args.SetPointer(GRPC_ARG_FAKE_RESOLVER_RESPONSE_GENERATOR,
                       response_generator);
     }
+    args.SetPointerWithVtable(
+        GRPC_ARG_XDS_LOGICAL_DNS_CLUSTER_FAKE_RESOLVER_RESPONSE_GENERATOR,
+        logical_dns_cluster_resolver_response_generator_.get(),
+        &kLogicalDnsClusterResolverResponseGeneratorVtable);
     std::string uri = absl::StrCat(
         GetParam().use_xds_resolver() ? "xds" : "fake", ":///", server_name);
     std::shared_ptr<ChannelCredentials> channel_creds =
@@ -2264,6 +2299,8 @@ class XdsEnd2endTest : public ::testing::TestWithParam<TestType> {
       response_generator_;
   grpc_core::RefCountedPtr<grpc_core::FakeResolverResponseGenerator>
       lb_channel_response_generator_;
+  grpc_core::RefCountedPtr<grpc_core::FakeResolverResponseGenerator>
+      logical_dns_cluster_resolver_response_generator_;
   int xds_resource_does_not_exist_timeout_ms_ = 0;
   absl::InlinedVector<grpc_arg, 2> xds_channel_args_to_add_;
   grpc_channel_args xds_channel_args_;
@@ -2272,6 +2309,7 @@ class XdsEnd2endTest : public ::testing::TestWithParam<TestType> {
   RouteConfiguration default_route_config_;
   Cluster default_cluster_;
   bool use_xds_enabled_server_;
+  bool bootstrap_contents_from_env_var_;
 };
 
 class BasicTest : public XdsEnd2endTest {
@@ -4905,20 +4943,27 @@ TEST_P(LdsRdsTest, XdsRoutingHeadersMatching) {
   header_matcher4->set_present_match(false);
   auto* header_matcher5 = route1->mutable_match()->add_headers();
   header_matcher5->set_name("header5");
-  header_matcher5->set_prefix_match("/grpc");
+  header_matcher5->set_present_match(true);
   auto* header_matcher6 = route1->mutable_match()->add_headers();
   header_matcher6->set_name("header6");
-  header_matcher6->set_suffix_match(".cc");
-  header_matcher6->set_invert_match(true);
+  header_matcher6->set_prefix_match("/grpc");
+  auto* header_matcher7 = route1->mutable_match()->add_headers();
+  header_matcher7->set_name("header7");
+  header_matcher7->set_suffix_match(".cc");
+  header_matcher7->set_invert_match(true);
   route1->mutable_route()->set_cluster(kNewClusterName);
   auto* default_route = route_config.mutable_virtual_hosts(0)->add_routes();
   default_route->mutable_match()->set_prefix("");
   default_route->mutable_route()->set_cluster(kDefaultClusterName);
   SetRouteConfiguration(0, route_config);
   std::vector<std::pair<std::string, std::string>> metadata = {
-      {"header1", "POST"}, {"header2", "blah"},
-      {"header3", "1"},    {"header5", "/grpc.testing.EchoTest1Service/"},
-      {"header1", "PUT"},  {"header6", "grpc.java"},
+      {"header1", "POST"},
+      {"header2", "blah"},
+      {"header3", "1"},
+      {"header5", "anything"},
+      {"header6", "/grpc.testing.EchoTest1Service/"},
+      {"header1", "PUT"},
+      {"header7", "grpc.java"},
       {"header1", "GET"},
   };
   const auto header_match_rpc_options = RpcOptions()
@@ -5286,9 +5331,234 @@ TEST_P(CdsTest, Vanilla) {
             AdsServiceImpl::ResponseState::ACKED);
 }
 
+TEST_P(CdsTest, LogicalDNSClusterType) {
+  gpr_setenv("GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER",
+             "true");
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  // Create Logical DNS Cluster
+  auto cluster = default_cluster_;
+  cluster.set_type(Cluster::LOGICAL_DNS);
+  balancers_[0]->ads_service()->SetCdsResource(cluster);
+  // Set Logical DNS result
+  {
+    grpc_core::ExecCtx exec_ctx;
+    grpc_core::Resolver::Result result;
+    result.addresses = CreateAddressListFromPortList(GetBackendPorts(1, 2));
+    logical_dns_cluster_resolver_response_generator_->SetResponse(
+        std::move(result));
+  }
+  // Wait for traffic to go to backend 1.
+  WaitForBackend(1);
+  gpr_unsetenv(
+      "GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER");
+}
+
+TEST_P(CdsTest, AggregateClusterType) {
+  gpr_setenv("GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER",
+             "true");
+  const char* kNewCluster1Name = "new_cluster_1";
+  const char* kNewEdsService1Name = "new_eds_service_name_1";
+  const char* kNewCluster2Name = "new_cluster_2";
+  const char* kNewEdsService2Name = "new_eds_service_name_2";
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  // Populate new EDS resources.
+  AdsServiceImpl::EdsResourceArgs args1({
+      {"locality0", GetBackendPorts(1, 2)},
+  });
+  AdsServiceImpl::EdsResourceArgs args2({
+      {"locality0", GetBackendPorts(2, 3)},
+  });
+  balancers_[0]->ads_service()->SetEdsResource(
+      BuildEdsResource(args1, kNewEdsService1Name));
+  balancers_[0]->ads_service()->SetEdsResource(
+      BuildEdsResource(args2, kNewEdsService2Name));
+  // Populate new CDS resources.
+  Cluster new_cluster1 = default_cluster_;
+  new_cluster1.set_name(kNewCluster1Name);
+  new_cluster1.mutable_eds_cluster_config()->set_service_name(
+      kNewEdsService1Name);
+  balancers_[0]->ads_service()->SetCdsResource(new_cluster1);
+  Cluster new_cluster2 = default_cluster_;
+  new_cluster2.set_name(kNewCluster2Name);
+  new_cluster2.mutable_eds_cluster_config()->set_service_name(
+      kNewEdsService2Name);
+  balancers_[0]->ads_service()->SetCdsResource(new_cluster2);
+  // Create Aggregate Cluster
+  auto cluster = default_cluster_;
+  CustomClusterType* custom_cluster = cluster.mutable_cluster_type();
+  custom_cluster->set_name("envoy.clusters.aggregate");
+  ClusterConfig cluster_config;
+  cluster_config.add_clusters(kNewCluster1Name);
+  cluster_config.add_clusters(kNewCluster2Name);
+  custom_cluster->mutable_typed_config()->PackFrom(cluster_config);
+  balancers_[0]->ads_service()->SetCdsResource(cluster);
+  // Wait for traffic to go to backend 1.
+  WaitForBackend(1);
+  // Shutdown backend 1 and wait for all traffic to go to backend 2.
+  ShutdownBackend(1);
+  WaitForBackend(2);
+  EXPECT_EQ(balancers_[0]->ads_service()->cds_response_state().state,
+            AdsServiceImpl::ResponseState::ACKED);
+  // Bring backend 1 back and ensure all traffic go back to it.
+  StartBackend(1);
+  WaitForBackend(1);
+  gpr_unsetenv(
+      "GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER");
+}
+
+TEST_P(CdsTest, AggregateClusterEdsToLogicalDns) {
+  gpr_setenv("GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER",
+             "true");
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  const char* kNewCluster1Name = "new_cluster_1";
+  const char* kNewEdsService1Name = "new_eds_service_name_1";
+  const char* kLogicalDNSClusterName = "logical_dns_cluster";
+  // Populate new EDS resources.
+  AdsServiceImpl::EdsResourceArgs args1({
+      {"locality0", GetBackendPorts(1, 2)},
+  });
+  balancers_[0]->ads_service()->SetEdsResource(
+      BuildEdsResource(args1, kNewEdsService1Name));
+  // Populate new CDS resources.
+  Cluster new_cluster1 = default_cluster_;
+  new_cluster1.set_name(kNewCluster1Name);
+  new_cluster1.mutable_eds_cluster_config()->set_service_name(
+      kNewEdsService1Name);
+  balancers_[0]->ads_service()->SetCdsResource(new_cluster1);
+  // Create Logical DNS Cluster
+  auto logical_dns_cluster = default_cluster_;
+  logical_dns_cluster.set_name(kLogicalDNSClusterName);
+  logical_dns_cluster.set_type(Cluster::LOGICAL_DNS);
+  balancers_[0]->ads_service()->SetCdsResource(logical_dns_cluster);
+  // Create Aggregate Cluster
+  auto cluster = default_cluster_;
+  CustomClusterType* custom_cluster = cluster.mutable_cluster_type();
+  custom_cluster->set_name("envoy.clusters.aggregate");
+  ClusterConfig cluster_config;
+  cluster_config.add_clusters(kNewCluster1Name);
+  cluster_config.add_clusters(kLogicalDNSClusterName);
+  custom_cluster->mutable_typed_config()->PackFrom(cluster_config);
+  balancers_[0]->ads_service()->SetCdsResource(cluster);
+  // Set Logical DNS result
+  {
+    grpc_core::ExecCtx exec_ctx;
+    grpc_core::Resolver::Result result;
+    result.addresses = CreateAddressListFromPortList(GetBackendPorts(2, 3));
+    logical_dns_cluster_resolver_response_generator_->SetResponse(
+        std::move(result));
+  }
+  // Wait for traffic to go to backend 1.
+  WaitForBackend(1);
+  // Shutdown backend 1 and wait for all traffic to go to backend 2.
+  ShutdownBackend(1);
+  WaitForBackend(2);
+  EXPECT_EQ(balancers_[0]->ads_service()->cds_response_state().state,
+            AdsServiceImpl::ResponseState::ACKED);
+  // Bring backend 1 back and ensure all traffic go back to it.
+  StartBackend(1);
+  WaitForBackend(1);
+  gpr_unsetenv(
+      "GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER");
+}
+
+TEST_P(CdsTest, AggregateClusterLogicalDnsToEds) {
+  gpr_setenv("GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER",
+             "true");
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  const char* kNewCluster2Name = "new_cluster_2";
+  const char* kNewEdsService2Name = "new_eds_service_name_2";
+  const char* kLogicalDNSClusterName = "logical_dns_cluster";
+  // Populate new EDS resources.
+  AdsServiceImpl::EdsResourceArgs args2({
+      {"locality0", GetBackendPorts(2, 3)},
+  });
+  balancers_[0]->ads_service()->SetEdsResource(
+      BuildEdsResource(args2, kNewEdsService2Name));
+  // Populate new CDS resources.
+  Cluster new_cluster2 = default_cluster_;
+  new_cluster2.set_name(kNewCluster2Name);
+  new_cluster2.mutable_eds_cluster_config()->set_service_name(
+      kNewEdsService2Name);
+  balancers_[0]->ads_service()->SetCdsResource(new_cluster2);
+  // Create Logical DNS Cluster
+  auto logical_dns_cluster = default_cluster_;
+  logical_dns_cluster.set_name(kLogicalDNSClusterName);
+  logical_dns_cluster.set_type(Cluster::LOGICAL_DNS);
+  balancers_[0]->ads_service()->SetCdsResource(logical_dns_cluster);
+  // Create Aggregate Cluster
+  auto cluster = default_cluster_;
+  CustomClusterType* custom_cluster = cluster.mutable_cluster_type();
+  custom_cluster->set_name("envoy.clusters.aggregate");
+  ClusterConfig cluster_config;
+  cluster_config.add_clusters(kLogicalDNSClusterName);
+  cluster_config.add_clusters(kNewCluster2Name);
+  custom_cluster->mutable_typed_config()->PackFrom(cluster_config);
+  balancers_[0]->ads_service()->SetCdsResource(cluster);
+  // Set Logical DNS result
+  {
+    grpc_core::ExecCtx exec_ctx;
+    grpc_core::Resolver::Result result;
+    result.addresses = CreateAddressListFromPortList(GetBackendPorts(1, 2));
+    logical_dns_cluster_resolver_response_generator_->SetResponse(
+        std::move(result));
+  }
+  // Wait for traffic to go to backend 1.
+  WaitForBackend(1);
+  // Shutdown backend 1 and wait for all traffic to go to backend 2.
+  ShutdownBackend(1);
+  WaitForBackend(2);
+  EXPECT_EQ(balancers_[0]->ads_service()->cds_response_state().state,
+            AdsServiceImpl::ResponseState::ACKED);
+  // Bring backend 1 back and ensure all traffic go back to it.
+  StartBackend(1);
+  WaitForBackend(1);
+  gpr_unsetenv(
+      "GRPC_XDS_EXPERIMENTAL_ENABLE_AGGREGATE_AND_LOGICAL_DNS_CLUSTER");
+}
+
+// Test that CDS client should send a NACK if cluster type is Logical DNS but
+// the feature is not yet supported.
+TEST_P(CdsTest, LogicalDNSClusterTypeDisabled) {
+  auto cluster = default_cluster_;
+  cluster.set_type(Cluster::LOGICAL_DNS);
+  balancers_[0]->ads_service()->SetCdsResource(cluster);
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  CheckRpcSendFailure();
+  const auto& response_state =
+      balancers_[0]->ads_service()->cds_response_state();
+  EXPECT_EQ(response_state.state, AdsServiceImpl::ResponseState::NACKED);
+  EXPECT_EQ(response_state.error_message, "DiscoveryType is not valid.");
+}
+
+// Test that CDS client should send a NACK if cluster type is AGGREGATE but
+// the feature is not yet supported.
+TEST_P(CdsTest, AggregateClusterTypeDisabled) {
+  auto cluster = default_cluster_;
+  CustomClusterType* custom_cluster = cluster.mutable_cluster_type();
+  custom_cluster->set_name("envoy.clusters.aggregate");
+  ClusterConfig cluster_config;
+  cluster_config.add_clusters("cluster1");
+  cluster_config.add_clusters("cluster2");
+  custom_cluster->mutable_typed_config()->PackFrom(cluster_config);
+  cluster.set_type(Cluster::LOGICAL_DNS);
+  balancers_[0]->ads_service()->SetCdsResource(cluster);
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  CheckRpcSendFailure();
+  const auto& response_state =
+      balancers_[0]->ads_service()->cds_response_state();
+  EXPECT_EQ(response_state.state, AdsServiceImpl::ResponseState::NACKED);
+  EXPECT_EQ(response_state.error_message, "DiscoveryType is not valid.");
+}
+
 // Tests that CDS client should send a NACK if the cluster type in CDS response
-// is other than EDS.
-TEST_P(CdsTest, WrongClusterType) {
+// is unsupported.
+TEST_P(CdsTest, UnsupportedClusterType) {
   auto cluster = default_cluster_;
   cluster.set_type(Cluster::STATIC);
   balancers_[0]->ads_service()->SetCdsResource(cluster);
@@ -5298,7 +5568,7 @@ TEST_P(CdsTest, WrongClusterType) {
   const auto& response_state =
       balancers_[0]->ads_service()->cds_response_state();
   EXPECT_EQ(response_state.state, AdsServiceImpl::ResponseState::NACKED);
-  EXPECT_EQ(response_state.error_message, "DiscoveryType is not EDS.");
+  EXPECT_EQ(response_state.error_message, "DiscoveryType is not valid.");
 }
 
 // Tests that CDS client should send a NACK if the eds_config in CDS response is
@@ -5444,17 +5714,17 @@ class XdsSecurityTest : public BasicTest {
     }
     balancers_[0]->ads_service()->SetCdsResource(cluster);
     // The updates might take time to have an effect, so use a retry loop.
-    constexpr int kRetryCount = 10;
+    constexpr int kRetryCount = 100;
     int num_tries = 0;
     for (; num_tries < kRetryCount; num_tries++) {
       // Give some time for the updates to propagate.
       gpr_sleep_until(grpc_timeout_milliseconds_to_deadline(100));
-      ShutdownBackend(0);
-      StartBackend(0);
-      ResetBackendCounters();
       if (test_expects_failure) {
-        Status status = SendRpc();
-        if (status.ok()) {
+        // Restart the servers to force a reconnection so that previously
+        // connected subchannels are not used for the RPC.
+        ShutdownBackend(0);
+        StartBackend(0);
+        if (SendRpc().ok()) {
           gpr_log(GPR_ERROR, "RPC succeeded. Failure expected. Trying again.");
           continue;
         }
@@ -5983,13 +6253,17 @@ class XdsEnabledServerTest : public XdsEnd2endTest {
 TEST_P(XdsEnabledServerTest, Basic) {
   Listener listener;
   listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=127.0.0.1:",
-                   backends_[0]->port()));
+      absl::StrCat("grpc/server?xds.resource.listening_address=",
+                   ipv6_only_ ? "[::1]:" : "127.0.0.1:", backends_[0]->port()));
   listener.mutable_address()->mutable_socket_address()->set_address(
-      "127.0.0.1");
+      ipv6_only_ ? "::1" : "127.0.0.1");
   listener.mutable_address()->mutable_socket_address()->set_port_value(
       backends_[0]->port());
   listener.add_filter_chains();
+  balancers_[0]->ads_service()->SetLdsResource(listener);
+  listener.set_name(
+      absl::StrCat("grpc/server?xds.resource.listening_address=[::1]:",
+                   backends_[0]->port()));
   balancers_[0]->ads_service()->SetLdsResource(listener);
   WaitForBackend(0);
   CheckRpcSendOk();
@@ -5998,15 +6272,9 @@ TEST_P(XdsEnabledServerTest, Basic) {
 TEST_P(XdsEnabledServerTest, BadLdsUpdateNoApiListenerNorAddress) {
   Listener listener;
   listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=127.0.0.1:",
-                   backends_[0]->port()));
+      absl::StrCat("grpc/server?xds.resource.listening_address=",
+                   ipv6_only_ ? "[::1]:" : "127.0.0.1:", backends_[0]->port()));
   listener.add_filter_chains();
-  balancers_[0]->ads_service()->SetLdsResource(listener);
-  // TODO(yashykt): We need to set responses for both addresses because of
-  // b/176843510
-  listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=[::1]:",
-                   backends_[0]->port()));
   balancers_[0]->ads_service()->SetLdsResource(listener);
   CheckRpcSendFailure(1, RpcOptions().set_wait_for_ready(true));
   const auto& response_state =
@@ -6019,23 +6287,17 @@ TEST_P(XdsEnabledServerTest, BadLdsUpdateNoApiListenerNorAddress) {
 TEST_P(XdsEnabledServerTest, BadLdsUpdateBothApiListenerAndAddress) {
   Listener listener;
   listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=127.0.0.1:",
-                   backends_[0]->port()));
+      absl::StrCat("grpc/server?xds.resource.listening_address=",
+                   ipv6_only_ ? "[::1]:" : "127.0.0.1:", backends_[0]->port()));
   balancers_[0]->ads_service()->SetLdsResource(listener);
   listener.mutable_address()->mutable_socket_address()->set_address(
-      "127.0.0.1");
+      ipv6_only_ ? "::1" : "127.0.0.1");
   listener.mutable_address()->mutable_socket_address()->set_port_value(
       backends_[0]->port());
   auto* filter_chain = listener.add_filter_chains();
   auto* transport_socket = filter_chain->mutable_transport_socket();
   transport_socket->set_name("envoy.transport_sockets.tls");
   listener.mutable_api_listener();
-  balancers_[0]->ads_service()->SetLdsResource(listener);
-  // TODO(yashykt): We need to set responses for both addresses because of
-  // b/176843510
-  listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=[::1]:",
-                   backends_[0]->port()));
   balancers_[0]->ads_service()->SetLdsResource(listener);
   CheckRpcSendFailure(1, RpcOptions().set_wait_for_ready(true));
   const auto& response_state =
@@ -6141,7 +6403,7 @@ class XdsServerSecurityTest : public XdsEnd2endTest {
     ChannelArguments args;
     // Override target name for host name check
     args.SetString(GRPC_SSL_TARGET_NAME_OVERRIDE_ARG,
-                   ipv6_only_ ? "[::1]" : "127.0.0.1");
+                   ipv6_only_ ? "::1" : "127.0.0.1");
     args.SetInt(GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL, 1);
     std::string uri = absl::StrCat(
         ipv6_only_ ? "ipv6:[::1]:" : "ipv4:127.0.0.1:", backends_[0]->port());
@@ -6173,7 +6435,7 @@ class XdsServerSecurityTest : public XdsEnd2endTest {
     ChannelArguments args;
     // Override target name for host name check
     args.SetString(GRPC_SSL_TARGET_NAME_OVERRIDE_ARG,
-                   ipv6_only_ ? "[::1]" : "127.0.0.1");
+                   ipv6_only_ ? "::1" : "127.0.0.1");
     args.SetInt(GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL, 1);
     std::string uri = absl::StrCat(
         ipv6_only_ ? "ipv6:[::1]:" : "ipv4:127.0.0.1:", backends_[0]->port());
@@ -6204,7 +6466,7 @@ class XdsServerSecurityTest : public XdsEnd2endTest {
     ChannelArguments args;
     // Override target name for host name check
     args.SetString(GRPC_SSL_TARGET_NAME_OVERRIDE_ARG,
-                   ipv6_only_ ? "[::1]" : "127.0.0.1");
+                   ipv6_only_ ? "::1" : "127.0.0.1");
     args.SetInt(GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL, 1);
     std::string uri = absl::StrCat(
         ipv6_only_ ? "ipv6:[::1]:" : "ipv4:127.0.0.1:", backends_[0]->port());
@@ -6284,24 +6546,17 @@ class XdsServerSecurityTest : public XdsEnd2endTest {
 TEST_P(XdsServerSecurityTest, TlsConfigurationWithoutRootProviderInstance) {
   Listener listener;
   listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=127.0.0.1:",
-                   backends_[0]->port()));
+      absl::StrCat("grpc/server?xds.resource.listening_address=",
+                   ipv6_only_ ? "[::1]:" : "127.0.0.1:", backends_[0]->port()));
   balancers_[0]->ads_service()->SetLdsResource(listener);
   auto* socket_address = listener.mutable_address()->mutable_socket_address();
-  socket_address->set_address("127.0.0.1");
+  socket_address->set_address(ipv6_only_ ? "::1" : "127.0.0.1");
   socket_address->set_port_value(backends_[0]->port());
   auto* filter_chain = listener.add_filter_chains();
   auto* transport_socket = filter_chain->mutable_transport_socket();
   transport_socket->set_name("envoy.transport_sockets.tls");
   DownstreamTlsContext downstream_tls_context;
   transport_socket->mutable_typed_config()->PackFrom(downstream_tls_context);
-  balancers_[0]->ads_service()->SetLdsResource(listener);
-  // TODO(yashykt): We need to set responses for both addresses because of
-  // b/176843510.
-  listener.set_name(
-      absl::StrCat("grpc/server?xds.resource.listening_address=[::1]:",
-                   backends_[0]->port()));
-  socket_address->set_address("[::1]");
   balancers_[0]->ads_service()->SetLdsResource(listener);
   CheckRpcSendFailure(1, RpcOptions().set_wait_for_ready(true));
   const auto& response_state =
@@ -7829,6 +8084,22 @@ TEST_P(ClientLoadReportingWithDropTest, Vanilla) {
                                 kDropRateForThrottle * (1 + kErrorTolerance))));
 }
 
+class BootstrapContentsFromEnvVarTest : public XdsEnd2endTest {
+ public:
+  BootstrapContentsFromEnvVarTest() : XdsEnd2endTest(4, 1, 100, false, true) {}
+};
+
+TEST_P(BootstrapContentsFromEnvVarTest, Vanilla) {
+  SetNextResolution({});
+  SetNextResolutionForLbChannelAllBalancers();
+  AdsServiceImpl::EdsResourceArgs args({
+      {"locality0", GetBackendPorts()},
+  });
+  balancers_[0]->ads_service()->SetEdsResource(
+      BuildEdsResource(args, DefaultEdsServiceName()));
+  WaitForAllBackends();
+}
+
 std::string TestTypeName(const ::testing::TestParamInfo<TestType>& info) {
   return info.param.AsString();
 }
@@ -7961,6 +8232,10 @@ INSTANTIATE_TEST_SUITE_P(XdsTest, ClientLoadReportingTest,
 INSTANTIATE_TEST_SUITE_P(XdsTest, ClientLoadReportingWithDropTest,
                          ::testing::Values(TestType(false, true),
                                            TestType(true, true)),
+                         &TestTypeName);
+
+INSTANTIATE_TEST_SUITE_P(XdsTest, BootstrapContentsFromEnvVarTest,
+                         ::testing::Values(TestType(true, false)),
                          &TestTypeName);
 
 }  // namespace

@@ -45,7 +45,6 @@
 #include <grpcpp/impl/codegen/service_type.h>
 #include <grpcpp/server_builder.h>
 
-#include "src/core/lib/gpr/strerror.h"
 #include "src/core/lib/gpr/useful.h"
 #include "src/core/lib/gprpp/host_port.h"
 #include "src/core/lib/gprpp/thd.h"
@@ -451,7 +450,7 @@ class FakeTcpServer {
           0x00,                   // flags
           0x00, 0x00, 0x00, 0x00  // stream identifier
       };
-      if (total_bytes_sent_ < kEmptyHttp2SettingsFrame.size()) {
+      if (total_bytes_sent_ < int(kEmptyHttp2SettingsFrame.size())) {
         int bytes_to_send = kEmptyHttp2SettingsFrame.size() - total_bytes_sent_;
         int bytes_sent =
             send(fd_, kEmptyHttp2SettingsFrame.data() + total_bytes_sent_,
@@ -460,12 +459,11 @@ class FakeTcpServer {
           gpr_log(GPR_ERROR,
                   "Fake TCP server encountered unexpected error:%d |%s| "
                   "sending %d bytes on fd:%d",
-                  errno, grpc_core::StrError(errno).c_str(), bytes_to_send,
-                  fd_);
+                  errno, strerror(errno), bytes_to_send, fd_);
           GPR_ASSERT(0);
         } else if (bytes_sent > 0) {
           total_bytes_sent_ += bytes_sent;
-          GPR_ASSERT(total_bytes_sent_ <= kEmptyHttp2SettingsFrame.size());
+          GPR_ASSERT(total_bytes_sent_ <= int(kEmptyHttp2SettingsFrame.size()));
         }
       }
     }
