@@ -85,11 +85,11 @@ config_setting(
 python_config_settings()
 
 # This should be updated along with build_handwritten.yaml
-g_stands_for = "gummybear"  # @unused
+g_stands_for = "gilded"  # @unused
 
 core_version = "15.0.0"  # @unused
 
-version = "1.36.0-dev"  # @unused
+version = "1.37.0-dev"  # @unused
 
 GPR_PUBLIC_HDRS = [
     "include/grpc/support/alloc.h",
@@ -1375,6 +1375,7 @@ grpc_cc_library(
         "src/core/ext/xds/xds_certificate_provider.cc",
         "src/core/ext/xds/xds_client.cc",
         "src/core/ext/xds/xds_client_stats.cc",
+        "src/core/ext/xds/xds_http_filters.cc",
         "src/core/lib/security/credentials/xds/xds_credentials.cc",
     ],
     hdrs = [
@@ -1388,6 +1389,7 @@ grpc_cc_library(
         "src/core/ext/xds/xds_channel_args.h",
         "src/core/ext/xds/xds_client.h",
         "src/core/ext/xds/xds_client_stats.h",
+        "src/core/ext/xds/xds_http_filters.h",
         "src/core/lib/security/credentials/xds/xds_credentials.h",
     ],
     external_deps = [
@@ -1405,6 +1407,8 @@ grpc_cc_library(
         "grpc_client_channel",
         "grpc_secure",
         "grpc_transport_chttp2_client_secure",
+        "udpa_type_upb",
+        "udpa_type_upbdefs",
     ],
 )
 
@@ -2646,6 +2650,7 @@ grpc_cc_library(
         "src/core/ext/upb-generated/envoy/config/route/v3/scoped_route.upb.c",
         "src/core/ext/upb-generated/envoy/config/trace/v3/http_tracer.upb.c",
         "src/core/ext/upb-generated/envoy/extensions/clusters/aggregate/v3/cluster.upb.c",
+        "src/core/ext/upb-generated/envoy/extensions/filters/http/router/v3/router.upb.c",
         "src/core/ext/upb-generated/envoy/extensions/filters/network/http_connection_manager/v3/http_connection_manager.upb.c",
         "src/core/ext/upb-generated/envoy/extensions/transport_sockets/tls/v3/cert.upb.c",
         "src/core/ext/upb-generated/envoy/extensions/transport_sockets/tls/v3/common.upb.c",
@@ -2679,6 +2684,7 @@ grpc_cc_library(
         "src/core/ext/upb-generated/envoy/config/route/v3/scoped_route.upb.h",
         "src/core/ext/upb-generated/envoy/config/trace/v3/http_tracer.upb.h",
         "src/core/ext/upb-generated/envoy/extensions/clusters/aggregate/v3/cluster.upb.h",
+        "src/core/ext/upb-generated/envoy/extensions/filters/http/router/v3/router.upb.h",
         "src/core/ext/upb-generated/envoy/extensions/filters/network/http_connection_manager/v3/http_connection_manager.upb.h",
         "src/core/ext/upb-generated/envoy/extensions/transport_sockets/tls/v3/cert.upb.h",
         "src/core/ext/upb-generated/envoy/extensions/transport_sockets/tls/v3/common.upb.h",
@@ -2705,7 +2711,7 @@ grpc_cc_library(
         ":google_api_upb",
         ":proto_gen_validate_upb",
         ":udpa_annotations_upb",
-        ":udpa_core_upb",
+        ":xds_core_upb",
     ],
 )
 
@@ -2729,6 +2735,7 @@ grpc_cc_library(
         "src/core/ext/upbdefs-generated/envoy/config/route/v3/scoped_route.upbdefs.c",
         "src/core/ext/upbdefs-generated/envoy/config/trace/v3/http_tracer.upbdefs.c",
         "src/core/ext/upbdefs-generated/envoy/extensions/clusters/aggregate/v3/cluster.upbdefs.c",
+        "src/core/ext/upbdefs-generated/envoy/extensions/filters/http/router/v3/router.upbdefs.c",
         "src/core/ext/upbdefs-generated/envoy/extensions/filters/network/http_connection_manager/v3/http_connection_manager.upbdefs.c",
         "src/core/ext/upbdefs-generated/envoy/extensions/transport_sockets/tls/v3/cert.upbdefs.c",
         "src/core/ext/upbdefs-generated/envoy/extensions/transport_sockets/tls/v3/common.upbdefs.c",
@@ -2761,6 +2768,7 @@ grpc_cc_library(
         "src/core/ext/upbdefs-generated/envoy/config/route/v3/scoped_route.upbdefs.h",
         "src/core/ext/upbdefs-generated/envoy/config/trace/v3/http_tracer.upbdefs.h",
         "src/core/ext/upbdefs-generated/envoy/extensions/clusters/aggregate/v3/cluster.upbdefs.h",
+        "src/core/ext/upbdefs-generated/envoy/extensions/filters/http/router/v3/router.upbdefs.h",
         "src/core/ext/upbdefs-generated/envoy/extensions/filters/network/http_connection_manager/v3/http_connection_manager.upbdefs.h",
         "src/core/ext/upbdefs-generated/envoy/extensions/transport_sockets/tls/v3/cert.upbdefs.h",
         "src/core/ext/upbdefs-generated/envoy/extensions/transport_sockets/tls/v3/common.upbdefs.h",
@@ -2789,7 +2797,7 @@ grpc_cc_library(
         ":google_api_upbdefs",
         ":proto_gen_validate_upbdefs",
         ":udpa_annotations_upbdefs",
-        ":udpa_core_upbdefs",
+        ":xds_core_upbdefs",
     ],
 )
 
@@ -2878,7 +2886,7 @@ grpc_cc_library(
         ":google_api_upb",
         ":proto_gen_validate_upb",
         ":udpa_annotations_upb",
-        ":udpa_core_upb",
+        ":xds_core_upb",
     ],
 )
 
@@ -3132,22 +3140,22 @@ grpc_cc_library(
 )
 
 grpc_cc_library(
-    name = "udpa_core_upb",
+    name = "xds_core_upb",
     srcs = [
-        "src/core/ext/upb-generated/udpa/core/v1/authority.upb.c",
-        "src/core/ext/upb-generated/udpa/core/v1/collection_entry.upb.c",
-        "src/core/ext/upb-generated/udpa/core/v1/context_params.upb.c",
-        "src/core/ext/upb-generated/udpa/core/v1/resource.upb.c",
-        "src/core/ext/upb-generated/udpa/core/v1/resource_locator.upb.c",
-        "src/core/ext/upb-generated/udpa/core/v1/resource_name.upb.c",
+        "src/core/ext/upb-generated/xds/core/v3/authority.upb.c",
+        "src/core/ext/upb-generated/xds/core/v3/collection_entry.upb.c",
+        "src/core/ext/upb-generated/xds/core/v3/context_params.upb.c",
+        "src/core/ext/upb-generated/xds/core/v3/resource.upb.c",
+        "src/core/ext/upb-generated/xds/core/v3/resource_locator.upb.c",
+        "src/core/ext/upb-generated/xds/core/v3/resource_name.upb.c",
     ],
     hdrs = [
-        "src/core/ext/upb-generated/udpa/core/v1/authority.upb.h",
-        "src/core/ext/upb-generated/udpa/core/v1/collection_entry.upb.h",
-        "src/core/ext/upb-generated/udpa/core/v1/context_params.upb.h",
-        "src/core/ext/upb-generated/udpa/core/v1/resource.upb.h",
-        "src/core/ext/upb-generated/udpa/core/v1/resource_locator.upb.h",
-        "src/core/ext/upb-generated/udpa/core/v1/resource_name.upb.h",
+        "src/core/ext/upb-generated/xds/core/v3/authority.upb.h",
+        "src/core/ext/upb-generated/xds/core/v3/collection_entry.upb.h",
+        "src/core/ext/upb-generated/xds/core/v3/context_params.upb.h",
+        "src/core/ext/upb-generated/xds/core/v3/resource.upb.h",
+        "src/core/ext/upb-generated/xds/core/v3/resource_locator.upb.h",
+        "src/core/ext/upb-generated/xds/core/v3/resource_name.upb.h",
     ],
     external_deps = [
         "upb_lib",
@@ -3162,22 +3170,22 @@ grpc_cc_library(
 )
 
 grpc_cc_library(
-    name = "udpa_core_upbdefs",
+    name = "xds_core_upbdefs",
     srcs = [
-        "src/core/ext/upbdefs-generated/udpa/core/v1/authority.upbdefs.c",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/collection_entry.upbdefs.c",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/context_params.upbdefs.c",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/resource.upbdefs.c",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/resource_locator.upbdefs.c",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/resource_name.upbdefs.c",
+        "src/core/ext/upbdefs-generated/xds/core/v3/authority.upbdefs.c",
+        "src/core/ext/upbdefs-generated/xds/core/v3/collection_entry.upbdefs.c",
+        "src/core/ext/upbdefs-generated/xds/core/v3/context_params.upbdefs.c",
+        "src/core/ext/upbdefs-generated/xds/core/v3/resource.upbdefs.c",
+        "src/core/ext/upbdefs-generated/xds/core/v3/resource_locator.upbdefs.c",
+        "src/core/ext/upbdefs-generated/xds/core/v3/resource_name.upbdefs.c",
     ],
     hdrs = [
-        "src/core/ext/upbdefs-generated/udpa/core/v1/authority.upbdefs.h",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/collection_entry.upbdefs.h",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/context_params.upbdefs.h",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/resource.upbdefs.h",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/resource_locator.upbdefs.h",
-        "src/core/ext/upbdefs-generated/udpa/core/v1/resource_name.upbdefs.h",
+        "src/core/ext/upbdefs-generated/xds/core/v3/authority.upbdefs.h",
+        "src/core/ext/upbdefs-generated/xds/core/v3/collection_entry.upbdefs.h",
+        "src/core/ext/upbdefs-generated/xds/core/v3/context_params.upbdefs.h",
+        "src/core/ext/upbdefs-generated/xds/core/v3/resource.upbdefs.h",
+        "src/core/ext/upbdefs-generated/xds/core/v3/resource_locator.upbdefs.h",
+        "src/core/ext/upbdefs-generated/xds/core/v3/resource_name.upbdefs.h",
     ],
     external_deps = [
         "upb_lib",
@@ -3189,7 +3197,46 @@ grpc_cc_library(
         ":google_api_upbdefs",
         ":proto_gen_validate_upbdefs",
         ":udpa_annotations_upbdefs",
-        ":udpa_core_upb",
+        ":xds_core_upb",
+    ],
+)
+
+grpc_cc_library(
+    name = "udpa_type_upb",
+    srcs = [
+        "src/core/ext/upb-generated/udpa/type/v1/typed_struct.upb.c",
+    ],
+    hdrs = [
+        "src/core/ext/upb-generated/udpa/type/v1/typed_struct.upb.h",
+    ],
+    external_deps = [
+        "upb_lib",
+        "upb_lib_descriptor",
+    ],
+    language = "c++",
+    deps = [
+        ":google_api_upb",
+        ":proto_gen_validate_upb",
+    ],
+)
+
+grpc_cc_library(
+    name = "udpa_type_upbdefs",
+    srcs = [
+        "src/core/ext/upbdefs-generated/udpa/type/v1/typed_struct.upbdefs.c",
+    ],
+    hdrs = [
+        "src/core/ext/upbdefs-generated/udpa/type/v1/typed_struct.upbdefs.h",
+    ],
+    external_deps = [
+        "upb_lib",
+        "upb_lib_descriptor_reflection",
+        "upb_textformat_lib",
+    ],
+    language = "c++",
+    deps = [
+        ":google_api_upbdefs",
+        ":proto_gen_validate_upbdefs",
     ],
 )
 
