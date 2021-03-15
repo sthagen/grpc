@@ -18,6 +18,8 @@
 
 #include <grpc/support/port_platform.h>
 
+#include "absl/strings/str_replace.h"
+
 #include "src/core/ext/xds/xds_certificate_provider.h"
 #include "src/core/ext/xds/xds_client.h"
 #include "src/core/lib/channel/channel_args.h"
@@ -46,9 +48,9 @@ class XdsServerConfigFetcher : public grpc_server_config_fetcher {
     auto listener_watcher = absl::make_unique<ListenerWatcher>(
         std::move(watcher), args, xds_client_);
     auto* listener_watcher_ptr = listener_watcher.get();
-    // TODO(yashykt): Get the resource name id from bootstrap
-    listening_address = absl::StrCat(
-        "grpc/server?xds.resource.listening_address=", listening_address);
+    listening_address = absl::StrReplaceAll(
+        xds_client_->bootstrap()->server_listener_resource_name_template(),
+        {{"%s", listening_address}});
     xds_client_->WatchListenerData(listening_address,
                                    std::move(listener_watcher));
     MutexLock lock(&mu_);
@@ -267,6 +269,14 @@ grpc_server_config_fetcher* grpc_server_config_fetcher_xds_create() {
     gpr_log(GPR_ERROR, "Failed to create xds client: %s",
             grpc_error_string(error));
     GRPC_ERROR_UNREF(error);
+    return nullptr;
+  }
+  if (xds_client->bootstrap()
+          ->server_listener_resource_name_template()
+          .empty()) {
+    gpr_log(GPR_ERROR,
+            "server_listener_resource_name_template not provided in bootstrap "
+            "file.");
     return nullptr;
   }
   return new grpc_core::XdsServerConfigFetcher(std::move(xds_client));
