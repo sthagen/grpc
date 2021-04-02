@@ -1706,6 +1706,7 @@ def test_fault_injection(gcp, original_backend_service, instance_group):
     ]
 
     try:
+        first_case = True
         for (testcase_name, client_config, expected_results) in test_cases:
             logger.info('starting case %s', testcase_name)
 
@@ -1725,6 +1726,9 @@ def test_fault_injection(gcp, original_backend_service, instance_group):
             # Each attempt takes 10 seconds; 20 attempts is equivalent to 200
             # second timeout.
             attempt_count = 20
+            if first_case:
+                attempt_count = 120
+                first_case = False
             before_stats = get_client_accumulated_stats()
             if not before_stats.stats_per_method:
                 raise ValueError(
@@ -2595,12 +2599,7 @@ try:
         client_env['GRPC_XDS_BOOTSTRAP'] = bootstrap_path
         client_env['GRPC_XDS_EXPERIMENTAL_CIRCUIT_BREAKING'] = 'true'
         client_env['GRPC_XDS_EXPERIMENTAL_ENABLE_TIMEOUT'] = 'true'
-        # Temporarily turn off fault injection, because HTTPFault filter isn't
-        # handled correctly yet in CPP and Go. And setting would break all the
-        # other tests. Uncomment the following line when the support is
-        # complete.
-        #
-        # client_env['GRPC_XDS_EXPERIMENTAL_FAULT_INJECTION'] = 'true'
+        client_env['GRPC_XDS_EXPERIMENTAL_FAULT_INJECTION'] = 'true'
         test_results = {}
         failed_tests = []
         for test_case in args.test_case:
