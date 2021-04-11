@@ -1,4 +1,4 @@
-// Copyright 2020 gRPC authors.
+// Copyright 2021 The gRPC Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,21 +11,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-#ifndef GRPC_TEST_CORE_UTIL_EVAL_ARGS_MOCK_ENDPOINT_H
-#define GRPC_TEST_CORE_UTIL_EVAL_ARGS_MOCK_ENDPOINT_H
+#ifndef GRPC_EVENT_ENGINE_CHANNEL_ARGS_H
+#define GRPC_EVENT_ENGINE_CHANNEL_ARGS_H
 
 #include <grpc/support/port_platform.h>
 
-#include "src/core/lib/iomgr/endpoint.h"
+namespace grpc_event_engine {
+namespace experimental {
 
-namespace grpc_core {
+// TODO(hork): define
+class ChannelArgs;
 
-grpc_endpoint* CreateEvalArgsMockEndpoint(const char* local_address,
-                                          const int local_port,
-                                          const char* peer_address,
-                                          const int peer_port);
+}  // namespace experimental
+}  // namespace grpc_event_engine
 
-}  // namespace grpc_core
-
-#endif  // GRPC_TEST_CORE_UTIL_EVAL_ARGS_MOCK_ENDPOINT_H
+#endif  // GRPC_EVENT_ENGINE_CHANNEL_ARGS_H
