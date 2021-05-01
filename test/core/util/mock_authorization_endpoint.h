@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef GRPC_TEST_CORE_UTIL_MOCK_EVAL_ARGS_ENDPOINT_H
-#define GRPC_TEST_CORE_UTIL_MOCK_EVAL_ARGS_ENDPOINT_H
+#ifndef GRPC_TEST_CORE_UTIL_MOCK_AUTHORIZATION_ENDPOINT_H
+#define GRPC_TEST_CORE_UTIL_MOCK_AUTHORIZATION_ENDPOINT_H
 
 #include <grpc/support/port_platform.h>
 
@@ -21,9 +21,10 @@
 
 namespace grpc_core {
 
-class MockEvalArgsEndpoint : public grpc_endpoint {
+class MockAuthorizationEndpoint : public grpc_endpoint {
  public:
-  MockEvalArgsEndpoint(absl::string_view local_uri, absl::string_view peer_uri)
+  MockAuthorizationEndpoint(absl::string_view local_uri,
+                            absl::string_view peer_uri)
       : local_address_(local_uri), peer_address_(peer_uri) {
     static constexpr grpc_endpoint_vtable vtable = {
         nullptr, nullptr, nullptr, nullptr,         nullptr, nullptr,
@@ -32,12 +33,14 @@ class MockEvalArgsEndpoint : public grpc_endpoint {
   }
 
   static absl::string_view GetPeer(grpc_endpoint* ep) {
-    MockEvalArgsEndpoint* m = reinterpret_cast<MockEvalArgsEndpoint*>(ep);
+    MockAuthorizationEndpoint* m =
+        reinterpret_cast<MockAuthorizationEndpoint*>(ep);
     return m->peer_address_;
   }
 
   static absl::string_view GetLocalAddress(grpc_endpoint* ep) {
-    MockEvalArgsEndpoint* m = reinterpret_cast<MockEvalArgsEndpoint*>(ep);
+    MockAuthorizationEndpoint* m =
+        reinterpret_cast<MockAuthorizationEndpoint*>(ep);
     return m->local_address_;
   }
 
@@ -56,4 +59,4 @@ class MockEvalArgsEndpoint : public grpc_endpoint {
 
 }  // namespace grpc_core
 
-#endif  // GRPC_TEST_CORE_UTIL_MOCK_EVAL_ARGS_ENDPOINT_H
+#endif  // GRPC_TEST_CORE_UTIL_MOCK_AUTHORIZATION_ENDPOINT_H

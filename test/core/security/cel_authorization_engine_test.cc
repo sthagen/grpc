@@ -36,7 +36,7 @@ TEST_F(CelAuthorizationEngineTest, CreateEngineSuccessOnePolicy) {
   std::unique_ptr<CelAuthorizationEngine> engine =
       CelAuthorizationEngine::CreateCelAuthorizationEngine(policies);
   EXPECT_NE(engine, nullptr)
-      << "Error: Failed to create an AuthorizationEngine with one policy.";
+      << "Error: Failed to create CelAuthorizationEngine with one policy.";
 }
 
 TEST_F(CelAuthorizationEngineTest, CreateEngineSuccessTwoPolicies) {
@@ -44,7 +44,7 @@ TEST_F(CelAuthorizationEngineTest, CreateEngineSuccessTwoPolicies) {
   std::unique_ptr<CelAuthorizationEngine> engine =
       CelAuthorizationEngine::CreateCelAuthorizationEngine(policies);
   EXPECT_NE(engine, nullptr)
-      << "Error: Failed to create an AuthorizationEngine with two policies.";
+      << "Error: Failed to create CelAuthorizationEngine with two policies.";
 }
 
 TEST_F(CelAuthorizationEngineTest, CreateEngineFailNoPolicies) {
@@ -52,7 +52,7 @@ TEST_F(CelAuthorizationEngineTest, CreateEngineFailNoPolicies) {
   std::unique_ptr<CelAuthorizationEngine> engine =
       CelAuthorizationEngine::CreateCelAuthorizationEngine(policies);
   EXPECT_EQ(engine, nullptr)
-      << "Error: Created an AuthorizationEngine without policies.";
+      << "Error: Created CelAuthorizationEngine without policies.";
 }
 
 TEST_F(CelAuthorizationEngineTest, CreateEngineFailTooManyPolicies) {
@@ -61,14 +61,14 @@ TEST_F(CelAuthorizationEngineTest, CreateEngineFailTooManyPolicies) {
   std::unique_ptr<CelAuthorizationEngine> engine =
       CelAuthorizationEngine::CreateCelAuthorizationEngine(policies);
   EXPECT_EQ(engine, nullptr)
-      << "Error: Created an AuthorizationEngine with more than two policies.";
+      << "Error: Created CelAuthorizationEngine with more than two policies.";
 }
 
 TEST_F(CelAuthorizationEngineTest, CreateEngineFailWrongPolicyOrder) {
   std::vector<envoy_config_rbac_v3_RBAC*> policies{allow_policy_, deny_policy_};
   std::unique_ptr<CelAuthorizationEngine> engine =
       CelAuthorizationEngine::CreateCelAuthorizationEngine(policies);
-  EXPECT_EQ(engine, nullptr) << "Error: Created an AuthorizationEngine with "
+  EXPECT_EQ(engine, nullptr) << "Error: Created CelAuthorizationEngine with "
                                 "policies in the wrong order.";
 }
 

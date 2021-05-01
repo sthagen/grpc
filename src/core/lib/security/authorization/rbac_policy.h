@@ -27,8 +27,8 @@ namespace grpc_core {
 // https://github.com/envoyproxy/envoy/blob/release/v1.17/api/envoy/config/rbac/v3/rbac.proto]
 struct Rbac {
   enum class Action {
-    ALLOW,
-    DENY,
+    kAllow,
+    kDeny,
   };
 
   struct CidrRange {
@@ -37,8 +37,6 @@ struct Rbac {
 
     CidrRange(CidrRange&& other) noexcept;
     CidrRange& operator=(CidrRange&& other) noexcept;
-    CidrRange(const CidrRange& other);
-    CidrRange& operator=(const CidrRange& other);
 
     std::string ToString() const;
 
@@ -49,14 +47,14 @@ struct Rbac {
   // TODO(ashithasantosh): Add metadata field to Permission and Principal.
   struct Permission {
     enum class RuleType {
-      AND,
-      OR,
-      ANY,
-      HEADER,
-      PATH,
-      DEST_IP,
-      DEST_PORT,
-      REQ_SERVER_NAME,
+      kAnd,
+      kOr,
+      kAny,
+      kHeader,
+      kPath,
+      kDestIp,
+      kDestPort,
+      kReqServerName,
     };
 
     Permission() = default;
@@ -94,15 +92,15 @@ struct Rbac {
 
   struct Principal {
     enum class RuleType {
-      AND,
-      OR,
-      ANY,
-      PRINCIPAL_NAME,
-      SOURCE_IP,
-      DIRECT_REMOTE_IP,
-      REMOTE_IP,
-      HEADER,
-      PATH,
+      kAnd,
+      kOr,
+      kAny,
+      kPrincipalName,
+      kSourceIp,
+      kDirectRemoteIp,
+      kRemoteIp,
+      kHeader,
+      kPath,
     };
 
     Principal() = default;

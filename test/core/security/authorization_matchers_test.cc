@@ -21,134 +21,100 @@
 
 #include "src/core/lib/security/authorization/evaluate_args.h"
 #include "src/core/lib/security/authorization/matchers.h"
-#include "test/core/util/mock_eval_args_endpoint.h"
+#include "test/core/util/evaluate_args_test_util.h"
 
 namespace grpc_core {
 
 class AuthorizationMatchersTest : public ::testing::Test {
  protected:
-  void SetUp() override { grpc_metadata_batch_init(&metadata_); }
-
-  void TearDown() override { grpc_metadata_batch_destroy(&metadata_); }
-
-  void AddPairToMetadata(const char* key, const char* value) {
-    metadata_storage_.emplace_back();
-    auto& storage = metadata_storage_.back();
-    ASSERT_EQ(grpc_metadata_batch_add_tail(
-                  &metadata_, &storage,
-                  grpc_mdelem_from_slices(
-                      grpc_slice_intern(grpc_slice_from_static_string(key)),
-                      grpc_slice_intern(grpc_slice_from_static_string(value)))),
-              GRPC_ERROR_NONE);
-  }
-
-  void SetLocalEndpoint(absl::string_view local_uri) {
-    endpoint_.SetLocalAddress(local_uri);
-  }
-
-  void SetPeerEndpoint(absl::string_view peer_uri) {
-    endpoint_.SetPeer(peer_uri);
-  }
-
-  void AddPropertyToAuthContext(const char* name, const char* value) {
-    auth_context_.add_cstring_property(name, value);
-  }
-
-  EvaluateArgs MakeEvaluateArgs() {
-    return EvaluateArgs(&metadata_, &auth_context_, &endpoint_);
-  }
-
-  std::list<grpc_linked_mdelem> metadata_storage_;
-  grpc_metadata_batch metadata_;
-  MockEvalArgsEndpoint endpoint_{/*local_uri=*/"", /*peer_uri=*/""};
-  grpc_auth_context auth_context_{nullptr};
+  EvaluateArgsTestUtil args_;
 };
 
 TEST_F(AuthorizationMatchersTest, AlwaysAuthorizationMatcher) {
-  EvaluateArgs args = MakeEvaluateArgs();
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AlwaysAuthorizationMatcher matcher;
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, NotAlwaysAuthorizationMatcher) {
-  EvaluateArgs args = MakeEvaluateArgs();
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AlwaysAuthorizationMatcher matcher(/*not_rule=*/true);
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, AndAuthorizationMatcherSuccessfulMatch) {
-  AddPairToMetadata("foo", "bar");
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "bar");
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::DEST_PORT, /*port=*/123));
+      Rbac::Permission::RuleType::kDestPort, /*port=*/123));
   AndAuthorizationMatcher matcher(std::move(rules));
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, AndAuthorizationMatcherFailedMatch) {
-  AddPairToMetadata("foo", "not_bar");
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "not_bar");
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::DEST_PORT, /*port=*/123));
+      Rbac::Permission::RuleType::kDestPort, /*port=*/123));
   AndAuthorizationMatcher matcher(std::move(rules));
   // Header rule fails. Expected value "bar", got "not_bar" for key "foo".
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, NotAndAuthorizationMatcher) {
-  AddPairToMetadata(":path", "/expected/foo");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata(":path", "/expected/foo");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   StringMatcher string_matcher =
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"/expected/foo",
                             /*case_sensitive=*/false)
           .value();
   std::vector<std::unique_ptr<Rbac::Permission>> ids;
   ids.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::PATH, std::move(string_matcher)));
+      Rbac::Permission::RuleType::kPath, std::move(string_matcher)));
   AndAuthorizationMatcher matcher(std::move(ids), /*not_rule=*/true);
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, OrAuthorizationMatcherSuccessfulMatch) {
-  AddPairToMetadata("foo", "bar");
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "bar");
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   HeaderMatcher header_matcher =
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER, header_matcher));
+      Rbac::Permission::RuleType::kHeader, header_matcher));
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::DEST_PORT, /*port=*/456));
+      Rbac::Permission::RuleType::kDestPort, /*port=*/456));
   OrAuthorizationMatcher matcher(std::move(rules));
   // Matches as header rule matches even though port rule fails.
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, OrAuthorizationMatcherFailedMatch) {
-  AddPairToMetadata("foo", "not_bar");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "not_bar");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   OrAuthorizationMatcher matcher(std::move(rules));
@@ -157,12 +123,12 @@ TEST_F(AuthorizationMatchersTest, OrAuthorizationMatcherFailedMatch) {
 }
 
 TEST_F(AuthorizationMatchersTest, NotOrAuthorizationMatcher) {
-  AddPairToMetadata("foo", "not_bar");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "not_bar");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   OrAuthorizationMatcher matcher(std::move(rules), /*not_rule=*/true);
@@ -170,60 +136,60 @@ TEST_F(AuthorizationMatchersTest, NotOrAuthorizationMatcher) {
 }
 
 TEST_F(AuthorizationMatchersTest, HybridAuthorizationMatcherSuccessfulMatch) {
-  AddPairToMetadata("foo", "bar");
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "bar");
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> sub_and_rules;
   sub_and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   std::vector<std::unique_ptr<Rbac::Permission>> sub_or_rules;
   sub_or_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::DEST_PORT, /*port=*/123));
+      Rbac::Permission::RuleType::kDestPort, /*port=*/123));
   std::vector<std::unique_ptr<Rbac::Permission>> and_rules;
   and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::AND, std::move(sub_and_rules)));
+      Rbac::Permission::RuleType::kAnd, std::move(sub_and_rules)));
   and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::OR, std::move(std::move(sub_or_rules))));
+      Rbac::Permission::RuleType::kOr, std::move(std::move(sub_or_rules))));
   AndAuthorizationMatcher matcher(std::move(and_rules));
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, HybridAuthorizationMatcherFailedMatch) {
-  AddPairToMetadata("foo", "bar");
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("foo", "bar");
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> sub_and_rules;
   sub_and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"foo", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   sub_and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"absent_key", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"absent_key", HeaderMatcher::Type::kExact,
                             /*matcher=*/"some_value")
           .value()));
   std::vector<std::unique_ptr<Rbac::Permission>> sub_or_rules;
   sub_or_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::DEST_PORT, /*port=*/123));
+      Rbac::Permission::RuleType::kDestPort, /*port=*/123));
   std::vector<std::unique_ptr<Rbac::Permission>> and_rules;
   and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::AND, std::move(sub_and_rules)));
+      Rbac::Permission::RuleType::kAnd, std::move(sub_and_rules)));
   and_rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::OR, std::move(std::move(sub_or_rules))));
+      Rbac::Permission::RuleType::kOr, std::move(std::move(sub_or_rules))));
   AndAuthorizationMatcher matcher(std::move(and_rules));
   // Fails as "absent_key" header was not present.
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, PathAuthorizationMatcherSuccessfulMatch) {
-  AddPairToMetadata(":path", "expected/path");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata(":path", "expected/path");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PathAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"expected/path",
                             /*case_sensitive=*/false)
           .value());
@@ -231,10 +197,10 @@ TEST_F(AuthorizationMatchersTest, PathAuthorizationMatcherSuccessfulMatch) {
 }
 
 TEST_F(AuthorizationMatchersTest, PathAuthorizationMatcherFailedMatch) {
-  AddPairToMetadata(":path", "different/path");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata(":path", "different/path");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PathAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"expected/path",
                             /*case_sensitive=*/false)
           .value());
@@ -242,10 +208,10 @@ TEST_F(AuthorizationMatchersTest, PathAuthorizationMatcherFailedMatch) {
 }
 
 TEST_F(AuthorizationMatchersTest, NotPathAuthorizationMatcher) {
-  AddPairToMetadata(":path", "expected/path");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata(":path", "expected/path");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PathAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT, "expected/path", false)
+      StringMatcher::Create(StringMatcher::Type::kExact, "expected/path", false)
           .value(),
       /*not_rule=*/true);
   EXPECT_FALSE(matcher.Matches(args));
@@ -253,9 +219,9 @@ TEST_F(AuthorizationMatchersTest, NotPathAuthorizationMatcher) {
 
 TEST_F(AuthorizationMatchersTest,
        PathAuthorizationMatcherFailedMatchMissingPath) {
-  EvaluateArgs args = MakeEvaluateArgs();
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PathAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"expected/path",
                             /*case_sensitive=*/false)
           .value());
@@ -263,20 +229,20 @@ TEST_F(AuthorizationMatchersTest,
 }
 
 TEST_F(AuthorizationMatchersTest, HeaderAuthorizationMatcherSuccessfulMatch) {
-  AddPairToMetadata("key123", "foo_xxx");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("key123", "foo_xxx");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   HeaderAuthorizationMatcher matcher(
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::PREFIX,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kPrefix,
                             /*matcher=*/"foo")
           .value());
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, HeaderAuthorizationMatcherFailedMatch) {
-  AddPairToMetadata("key123", "foo");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("key123", "foo");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   HeaderAuthorizationMatcher matcher(
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::EXACT,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value());
   EXPECT_FALSE(matcher.Matches(args));
@@ -284,11 +250,11 @@ TEST_F(AuthorizationMatchersTest, HeaderAuthorizationMatcherFailedMatch) {
 
 TEST_F(AuthorizationMatchersTest,
        HeaderAuthorizationMatcherFailedMatchMultivaluedHeader) {
-  AddPairToMetadata("key123", "foo");
-  AddPairToMetadata("key123", "bar");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("key123", "foo");
+  args_.AddPairToMetadata("key123", "bar");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   HeaderAuthorizationMatcher matcher(
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::EXACT,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kExact,
                             /*matcher=*/"foo")
           .value());
   EXPECT_FALSE(matcher.Matches(args));
@@ -296,19 +262,19 @@ TEST_F(AuthorizationMatchersTest,
 
 TEST_F(AuthorizationMatchersTest,
        HeaderAuthorizationMatcherFailedMatchMissingHeader) {
-  EvaluateArgs args = MakeEvaluateArgs();
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   HeaderAuthorizationMatcher matcher(
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::SUFFIX,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kSuffix,
                             /*matcher=*/"foo")
           .value());
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, NotHeaderAuthorizationMatcher) {
-  AddPairToMetadata("key123", "foo");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("key123", "foo");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   HeaderAuthorizationMatcher matcher(
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::EXACT,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value(),
       /*not_rule=*/true);
@@ -316,31 +282,31 @@ TEST_F(AuthorizationMatchersTest, NotHeaderAuthorizationMatcher) {
 }
 
 TEST_F(AuthorizationMatchersTest, PortAuthorizationMatcherSuccessfulMatch) {
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PortAuthorizationMatcher matcher(/*port=*/123);
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, PortAuthorizationMatcherFailedMatch) {
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PortAuthorizationMatcher matcher(/*port=*/456);
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, NotPortAuthorizationMatcher) {
-  SetLocalEndpoint("ipv4:255.255.255.255:123");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.SetLocalEndpoint("ipv4:255.255.255.255:123");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   PortAuthorizationMatcher matcher(/*port=*/123, /*not_rule=*/true);
   EXPECT_FALSE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest,
        AuthenticatedMatcherUnAuthenticatedConnection) {
-  EvaluateArgs args = MakeEvaluateArgs();
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AuthenticatedAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"foo.com",
                             /*case_sensitive=*/false)
           .value());
@@ -349,11 +315,11 @@ TEST_F(AuthorizationMatchersTest,
 
 TEST_F(AuthorizationMatchersTest,
        AuthenticatedMatcherAuthenticatedConnectionMatcherUnset) {
-  AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
-                           GRPC_SSL_TRANSPORT_SECURITY_TYPE);
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
+                                 GRPC_SSL_TRANSPORT_SECURITY_TYPE);
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AuthenticatedAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"",
                             /*case_sensitive=*/false)
           .value());
@@ -362,13 +328,13 @@ TEST_F(AuthorizationMatchersTest,
 
 TEST_F(AuthorizationMatchersTest,
        AuthenticatedMatcherSuccessfulSpiffeIdMatches) {
-  AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
-                           GRPC_SSL_TRANSPORT_SECURITY_TYPE);
-  AddPropertyToAuthContext(GRPC_PEER_SPIFFE_ID_PROPERTY_NAME,
-                           "spiffe://foo.abc");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
+                                 GRPC_SSL_TRANSPORT_SECURITY_TYPE);
+  args_.AddPropertyToAuthContext(GRPC_PEER_SPIFFE_ID_PROPERTY_NAME,
+                                 "spiffe://foo.abc");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AuthenticatedAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"spiffe://foo.abc",
                             /*case_sensitive=*/false)
           .value());
@@ -376,13 +342,13 @@ TEST_F(AuthorizationMatchersTest,
 }
 
 TEST_F(AuthorizationMatchersTest, AuthenticatedMatcherFailedSpiffeIdMatches) {
-  AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
-                           GRPC_SSL_TRANSPORT_SECURITY_TYPE);
-  AddPropertyToAuthContext(GRPC_PEER_SPIFFE_ID_PROPERTY_NAME,
-                           "spiffe://bar.abc");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
+                                 GRPC_SSL_TRANSPORT_SECURITY_TYPE);
+  args_.AddPropertyToAuthContext(GRPC_PEER_SPIFFE_ID_PROPERTY_NAME,
+                                 "spiffe://bar.abc");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AuthenticatedAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"spiffe://foo.abc",
                             /*case_sensitive=*/false)
           .value());
@@ -390,11 +356,11 @@ TEST_F(AuthorizationMatchersTest, AuthenticatedMatcherFailedSpiffeIdMatches) {
 }
 
 TEST_F(AuthorizationMatchersTest, AuthenticatedMatcherFailedNothingMatches) {
-  AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
-                           GRPC_SSL_TRANSPORT_SECURITY_TYPE);
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
+                                 GRPC_SSL_TRANSPORT_SECURITY_TYPE);
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AuthenticatedAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT,
+      StringMatcher::Create(StringMatcher::Type::kExact,
                             /*matcher=*/"foo",
                             /*case_sensitive=*/false)
           .value());
@@ -402,11 +368,11 @@ TEST_F(AuthorizationMatchersTest, AuthenticatedMatcherFailedNothingMatches) {
 }
 
 TEST_F(AuthorizationMatchersTest, NotAuthenticatedMatcher) {
-  AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
-                           GRPC_SSL_TRANSPORT_SECURITY_TYPE);
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPropertyToAuthContext(GRPC_TRANSPORT_SECURITY_TYPE_PROPERTY_NAME,
+                                 GRPC_SSL_TRANSPORT_SECURITY_TYPE);
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   AuthenticatedAuthorizationMatcher matcher(
-      StringMatcher::Create(StringMatcher::Type::EXACT, /*matcher=*/"foo",
+      StringMatcher::Create(StringMatcher::Type::kExact, /*matcher=*/"foo",
                             /*case_sensitive=*/false)
           .value(),
       /*not_rule=*/true);
@@ -414,32 +380,32 @@ TEST_F(AuthorizationMatchersTest, NotAuthenticatedMatcher) {
 }
 
 TEST_F(AuthorizationMatchersTest, PolicyAuthorizationMatcherSuccessfulMatch) {
-  AddPairToMetadata("key123", "foo");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("key123", "foo");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kExact,
                             /*matcher=*/"foo")
           .value()));
   PolicyAuthorizationMatcher matcher(Rbac::Policy(
-      Rbac::Permission(Rbac::Permission::RuleType::OR, std::move(rules)),
-      Rbac::Principal(Rbac::Principal::RuleType::ANY)));
+      Rbac::Permission(Rbac::Permission::RuleType::kOr, std::move(rules)),
+      Rbac::Principal(Rbac::Principal::RuleType::kAny)));
   EXPECT_TRUE(matcher.Matches(args));
 }
 
 TEST_F(AuthorizationMatchersTest, PolicyAuthorizationMatcherFailedMatch) {
-  AddPairToMetadata("key123", "foo");
-  EvaluateArgs args = MakeEvaluateArgs();
+  args_.AddPairToMetadata("key123", "foo");
+  EvaluateArgs args = args_.MakeEvaluateArgs();
   std::vector<std::unique_ptr<Rbac::Permission>> rules;
   rules.push_back(absl::make_unique<Rbac::Permission>(
-      Rbac::Permission::RuleType::HEADER,
-      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::EXACT,
+      Rbac::Permission::RuleType::kHeader,
+      HeaderMatcher::Create(/*name=*/"key123", HeaderMatcher::Type::kExact,
                             /*matcher=*/"bar")
           .value()));
   PolicyAuthorizationMatcher matcher(Rbac::Policy(
-      Rbac::Permission(Rbac::Permission::RuleType::OR, std::move(rules)),
-      Rbac::Principal(Rbac::Principal::RuleType::ANY)));
+      Rbac::Permission(Rbac::Permission::RuleType::kOr, std::move(rules)),
+      Rbac::Principal(Rbac::Principal::RuleType::kAny)));
   EXPECT_FALSE(matcher.Matches(args));
 }
 

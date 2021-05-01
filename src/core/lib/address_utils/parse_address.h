@@ -16,8 +16,8 @@
  *
  */
 
-#ifndef GRPC_CORE_LIB_IOMGR_PARSE_ADDRESS_H
-#define GRPC_CORE_LIB_IOMGR_PARSE_ADDRESS_H
+#ifndef GRPC_CORE_LIB_ADDRESS_UTILS_PARSE_ADDRESS_H
+#define GRPC_CORE_LIB_ADDRESS_UTILS_PARSE_ADDRESS_H
 
 #include <grpc/support/port_platform.h>
 
@@ -64,14 +64,14 @@ uint16_t grpc_strhtons(const char* port);
 namespace grpc_core {
 
 /** Populate \a resolved_addr to be a unix socket at |path| */
-grpc_error* UnixSockaddrPopulate(absl::string_view path,
-                                 grpc_resolved_address* resolved_addr);
+grpc_error_handle UnixSockaddrPopulate(absl::string_view path,
+                                       grpc_resolved_address* resolved_addr);
 
 /** Populate \a resolved_addr to be a unix socket in the abstract namespace
  * at |path| */
-grpc_error* UnixAbstractSockaddrPopulate(absl::string_view path,
-                                         grpc_resolved_address* resolved_addr);
+grpc_error_handle UnixAbstractSockaddrPopulate(
+    absl::string_view path, grpc_resolved_address* resolved_addr);
 
 }  // namespace grpc_core
 
-#endif /* GRPC_CORE_LIB_IOMGR_PARSE_ADDRESS_H */
+#endif /* GRPC_CORE_LIB_ADDRESS_UTILS_PARSE_ADDRESS_H */

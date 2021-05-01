@@ -44,10 +44,9 @@ namespace grpc_core {
 // are compatible with this engine.
 //
 // Example:
-// CelAuthorizationEngine*
-// auth_engine =
+// CelAuthorizationEngine* engine =
 // CelAuthorizationEngine::CreateCelAuthorizationEngine(rbac_policies);
-// auth_engine->Evaluate(evaluate_args); // returns authorization decision.
+// engine->Evaluate(evaluate_args); // returns authorization decision.
 class CelAuthorizationEngine {
  public:
   // rbac_policies must be a vector containing either a single policy of any

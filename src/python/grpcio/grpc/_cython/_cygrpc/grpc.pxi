@@ -405,13 +405,14 @@ cdef extern from "grpc/grpc.h":
        grpc_server* server, grpc_server_config_fetcher* config_fetcher) nogil
 
   ctypedef struct grpc_server_xds_status_notifier:
-    void (*on_serving_status_change)(void* user_data, const char* uri,
+    void (*on_serving_status_update)(void* user_data, const char* uri,
                                    grpc_status_code code,
                                    const char* error_message)
     void* user_data;
 
   grpc_server_config_fetcher* grpc_server_config_fetcher_xds_create(
-       grpc_server_xds_status_notifier notifier) nogil
+       grpc_server_xds_status_notifier notifier,
+       const grpc_channel_args* args) nogil
 
 
   int grpc_server_add_insecure_http2_port(
@@ -583,7 +584,7 @@ cdef extern from "grpc/grpc_security.h":
 
   ctypedef void (*grpc_credentials_plugin_metadata_cb)(
       void *user_data, const grpc_metadata *creds_md, size_t num_creds_md,
-      grpc_status_code status, const char *error_details)
+      grpc_status_code status, const char *error_details) nogil
 
   ctypedef struct grpc_metadata_credentials_plugin:
     int (*get_metadata)(
