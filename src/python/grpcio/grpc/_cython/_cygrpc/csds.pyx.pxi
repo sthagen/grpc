@@ -1,4 +1,4 @@
-# Copyright 2016 gRPC authors.
+# Copyright 2021 The gRPC Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import grpc
 
-# This code doesn't do much but makes sure the native extension is loaded
-# which is what we are testing here.
-channel = grpc.insecure_channel('localhost:1000')
-del channel
-print('Success!')
+def dump_xds_configs():
+    cdef grpc_slice client_config_in_slice
+    with nogil:
+        client_config_in_slice = grpc_dump_xds_configs()
+    cdef bytes result = _slice_bytes(client_config_in_slice)
+    return result
