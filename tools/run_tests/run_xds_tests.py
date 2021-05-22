@@ -84,7 +84,6 @@ _TEST_CASES = [
     'traffic_splitting',
     'path_matching',
     'header_matching',
-    'api_listener',
     'forwarding_rule_port_match',
     'forwarding_rule_default_port',
     'metadata_filter',
@@ -99,6 +98,7 @@ _ADDITIONAL_TEST_CASES = [
     'timeout',
     'fault_injection',
     'csds',
+    'api_listener',  # TODO(b/187352987) Relieve quota pressure
 ]
 
 # Test cases that require the V3 API.  Skipped in older runs.
@@ -279,14 +279,23 @@ CLIENT_HOSTS = []
 if args.client_hosts:
     CLIENT_HOSTS = args.client_hosts.split(',')
 
+# Each of the config propagation in the control plane should finish within 600s.
+# Otherwise, it indicates a bug in the control plane. The config propagation
+# includes all kinds of traffic config update, like updating urlMap, creating
+# the resources for the first time, updating BackendService, and changing the
+# status of endpoints in BackendService.
+_WAIT_FOR_URL_MAP_PATCH_SEC = 600
+# In general, fetching load balancing stats only takes ~10s. However, slow
+# config update could lead to empty EDS or similar symptoms causing the
+# connection to hang for a long period of time. So, we want to extend the stats
+# wait time to be the same as urlMap patch time.
+_WAIT_FOR_STATS_SEC = _WAIT_FOR_URL_MAP_PATCH_SEC
+
 _DEFAULT_SERVICE_PORT = 80
 _WAIT_FOR_BACKEND_SEC = args.wait_for_backend_sec
 _WAIT_FOR_OPERATION_SEC = 1200
 _INSTANCE_GROUP_SIZE = args.instance_group_size
 _NUM_TEST_RPCS = 10 * args.qps
-_WAIT_FOR_STATS_SEC = 360
-_WAIT_FOR_VALID_CONFIG_SEC = 60
-_WAIT_FOR_URL_MAP_PATCH_SEC = 300
 _CONNECTION_TIMEOUT_SEC = 60
 _GCP_API_RETRIES = 5
 _BOOTSTRAP_TEMPLATE = """
@@ -3050,6 +3059,7 @@ try:
 
     wait_for_healthy_backends(gcp, backend_service, instance_group)
 
+    failed_tests = []
     if args.test_case:
         client_env = dict(os.environ)
         if original_grpc_trace:
@@ -3082,7 +3092,6 @@ try:
         client_env['GRPC_XDS_EXPERIMENTAL_ENABLE_TIMEOUT'] = 'true'
         client_env['GRPC_XDS_EXPERIMENTAL_FAULT_INJECTION'] = 'true'
         test_results = {}
-        failed_tests = []
         for test_case in args.test_case:
             if test_case in _V3_TEST_CASES and not args.xds_v3_support:
                 logger.info('skipping test %s due to missing v3 support',
@@ -3173,9 +3182,15 @@ try:
                     test_gentle_failover(gcp, backend_service, instance_group,
                                          secondary_zone_instance_group)
                 elif test_case == 'load_report_based_failover':
-                    test_load_report_based_failover(
-                        gcp, backend_service, instance_group,
-                        secondary_zone_instance_group)
+                    try:
+                        test_load_report_based_failover(
+                            gcp, backend_service, instance_group,
+                            secondary_zone_instance_group)
+                    except:
+                        # TODO(b/181361235) Temporarily preserve resources after
+                        # failure
+                        logger.info('Aborting test suite (b/181361235)')
+                        sys.exit(1)
                 elif test_case == 'ping_pong':
                     test_ping_pong(gcp, backend_service, instance_group)
                 elif test_case == 'remove_instance_group':
@@ -3270,5 +3285,9 @@ try:
             sys.exit(1)
 finally:
     if not args.keep_gcp_resources:
-        logger.info('Cleaning up GCP resources. This may take some time.')
-        clean_up(gcp)
+        if 'load_report_based_failover' in failed_tests:
+            # TODO(b/181361235) Temporarily preserve resources after failure
+            logger.info('Skipping clean up due to b/181361235')
+        else:
+            logger.info('Cleaning up GCP resources. This may take some time.')
+            clean_up(gcp)
