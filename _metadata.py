@@ -1,4 +1,4 @@
-# Copyright 2021 gRPC authors.
+# Copyright 2021 The gRPC authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-licenses(["notice"])
+# AUTO-GENERATED FROM `$REPO_ROOT/templates/_metadata.py.template`!!!
 
-load("@rules_proto//proto:defs.bzl", "proto_library")
-
-proto_library(
-    name = "authz_policy_proto",
-    srcs = [
-        "authz_policy.proto",
-    ],
-    visibility = ["//visibility:public"],
-)
+__version__ = """1.39.0.dev0"""
