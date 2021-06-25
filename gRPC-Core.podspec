@@ -177,7 +177,7 @@ Pod::Spec.new do |s|
     ss.header_mappings_dir = '.'
     ss.libraries = 'z'
     ss.dependency "#{s.name}/Interface", version
-    ss.dependency 'BoringSSL-GRPC', '0.0.18'
+    ss.dependency 'BoringSSL-GRPC', '0.0.19'
     ss.dependency 'abseil/base/base', abseil_version
     ss.dependency 'abseil/container/flat_hash_map', abseil_version
     ss.dependency 'abseil/container/inlined_vector', abseil_version
@@ -2135,6 +2135,7 @@ Pod::Spec.new do |s|
                       'test/core/end2end/tests/retry_lb_drop.cc',
                       'test/core/end2end/tests/retry_non_retriable_status.cc',
                       'test/core/end2end/tests/retry_non_retriable_status_before_recv_trailing_metadata_started.cc',
+                      'test/core/end2end/tests/retry_per_attempt_recv_timeout.cc',
                       'test/core/end2end/tests/retry_recv_initial_metadata.cc',
                       'test/core/end2end/tests/retry_recv_message.cc',
                       'test/core/end2end/tests/retry_recv_trailing_metadata_error.cc',

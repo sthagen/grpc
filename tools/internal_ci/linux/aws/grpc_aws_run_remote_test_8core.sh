@@ -1,4 +1,5 @@
-# Copyright 2017 gRPC authors.
+#!/usr/bin/env bash
+# Copyright 2021 The gRPC Authors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,19 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:grpc_build_system.bzl", "grpc_cc_test", "grpc_package")
+set -e
 
-licenses(["notice"])
-
-grpc_package(name = "test/core/event_engine")
-
-grpc_cc_test(
-    name = "endpoint_config_test",
-    srcs = ["endpoint_config_test.cc"],
-    external_deps = ["gtest"],
-    language = "C++",
-    deps = [
-        "//:grpc",
-        "//test/core/util:grpc_test_util",
-    ],
-)
+AWS_INSTANCE_TYPE="t4g.2xlarge" "$(dirname $0)/grpc_aws_run_remote_test.sh"
